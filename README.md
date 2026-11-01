@@ -223,6 +223,18 @@ only sees your paper wallet and stock questions. Type **forget** to clear its me
 **Option A: your PC.** Menu → **13**, and leave the window open. The PC must be on during market hours. To start it at
 login, press Win+R → `shell:startup` → paste a copy of the Desktop shortcut there.
 
+**Option C: GitHub Actions + cron-job.org (what this app uses now, ₹0, no card, PC can be off).**
+cron-job.org starts `.github/workflows/bot.yml`, which runs `python main.py tick`: one pass that answers Telegram and does whatever is due, then exits.
+
+- **Schedule (cron-job.org, times in UTC):** `*/5 3-10 * * 1-5` (every 5 min, weekdays 8:30 AM - 3:55 PM IST) and `*/30 * * * *` (every 30 min, always).
+- **Replies aren't instant:** up to about 5 min in market hours, 30 min otherwise. Buys and sells fill at the price when the run happens, and stop-loss alerts can be about 5 min late.
+- **Your data** (prices, paper wallet) lives in the Actions cache, saved at the end of every run. GitHub deletes caches unused for 7 days. If the triggers stop that long, the bot restarts from the `seed` release with a fresh paper wallet.
+- **Secrets** are in GitHub → Settings → Secrets and variables → Actions: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, and optionally `GEMINI_API_KEY` and the four `ANGEL_` keys. Your chats and wallet are kept out of the public run logs.
+- **The access token on cron-job.org expires after a year.** When it does, make a new one (only the stock-app repo, Actions: read and write) and update the `Authorization` header on both jobs.
+- **Don't run menu 13 on the PC at the same time:** two bots fight over Telegram messages.
+- **Pause it:** disable both jobs on cron-job.org.
+- GitHub's terms discourage using Actions as an always-on server, so GitHub could limit this. Option B is the fallback.
+
 **Option B: free cloud server, so your PC can be off (₹0).** Oracle Cloud's *Always Free* tier gives you a Linux
 server free forever. About 20 minutes, once.
 
