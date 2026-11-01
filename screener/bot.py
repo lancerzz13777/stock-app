@@ -14,6 +14,7 @@ It never buys or sells anything.
 import json
 import os
 import socket
+import sys
 import threading
 import time
 import traceback
@@ -87,6 +88,7 @@ class Bot:
         self.fast = ThreadPoolExecutor(1, thread_name_prefix="wallet")  # exit alerts - never wait behind a scan
         self._running: dict = {}
         self.run_once = False                       # True in tick(): everything runs right here, one by one
+        self.job_failed = False
         con.executescript(STATE)
         paper._ensure(con)
         news._ensure(con)
@@ -238,7 +240,7 @@ class Bot:
         if not shares:
             # "buy 2 SBIN": fewer rupees than one share costs means a number of shares
             q = wallet.live_prices([sym]).get(sym)
-            shares = bool(q and amount < q[0] and amount == int(amount))
+            shares = bool(q and amount < q[0] and amount == int(amount) and amount <= 100)
         if shares:
             p = wallet.buy(self.con, self.cfg, sym, None, mode=mode, qty=int(amount), **extra)
         else:
@@ -646,12 +648,15 @@ class Bot:
         return latest < last_session.isoformat()
 
     # --- one pass, for GitHub Actions --------------------------------------
-    def _job(self, name: str, fn) -> None:
-        """One failed job must not stop the others in this pass."""
+    def _job(self, name: str, fn) -> bool:
+        """One failed job must not stop the others in this pass. tick() reports the failure when it ends."""
         try:
             fn()
+            return True
         except Exception as e:
+            self.job_failed = True
             log(f"ERROR in {name}: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+            return False
 
     def _tick_due(self, name: str, minutes: float, now) -> bool:
         """Like _due, but remembered between runs. One minute of slack, since runs never start exactly on time."""
@@ -699,13 +704,15 @@ class Bot:
             self._job("news_scan", self.news_scan)
         report_time = dtime(*map(int, a["daily_report_time"].split(":")))
         if now.weekday() < 5 and now.time() >= report_time and self.state_get("daily_done") != now.date().isoformat():
-            self.state_set("daily_done", now.date().isoformat())
-            self._job("daily_job", self.daily_job)
+            if self._job("daily_job", self.daily_job):  # failed? the next run tries again
+                self.state_set("daily_done", now.date().isoformat())
         elif (not market_is_open(now) and self.state_get("catch_up_done") != now.date().isoformat()
               and self._needs_catch_up(now)):
-            self.state_set("catch_up_done", now.date().isoformat())
-            self._job("catch_up", self.catch_up)
+            if self._job("catch_up", self.catch_up):
+                self.state_set("catch_up_done", now.date().isoformat())
         log("Tick finished")
+        if self.job_failed:
+            sys.exit(1)  # shows as a failed run on GitHub; the database is still saved
 
     # --- main loop -----------------------------------------------------
     def run(self):
