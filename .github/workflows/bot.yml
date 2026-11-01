@@ -1,0 +1,67 @@
+# One pass of the stock bot. cron-job.org starts this every few minutes (see README).
+# The database lives in the Actions cache between runs; a run saves it again when it ends.
+name: Stock bot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "50 10 * * 1-5"   # 4:20 PM IST on weekdays: evening report even if cron-job.org has a problem
+
+concurrency:                  # one run at a time, so the database never gets two writers
+  group: stock-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install
+        run: pip install -q -r requirements.txt
+
+      - name: Restore the database
+        id: restore
+        uses: actions/cache/restore@v4
+        with:
+          path: data/market.db
+          key: market-db-${{ github.run_id }}
+          restore-keys: market-db-
+
+      - name: First run - download the starting data
+        if: steps.restore.outputs.cache-matched-key == ''
+        run: |
+          mkdir -p data
+          curl -fsSL "https://github.com/${{ github.repository }}/releases/download/seed/market.db.gz" | gunzip > data/market.db
+
+      - name: Run the bot once
+        env:
+          BOT_PUBLIC_LOGS: "1"
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANGEL_API_KEY: ${{ secrets.ANGEL_API_KEY }}
+          ANGEL_CLIENT_CODE: ${{ secrets.ANGEL_CLIENT_CODE }}
+          ANGEL_MPIN: ${{ secrets.ANGEL_MPIN }}
+          ANGEL_TOTP_SECRET: ${{ secrets.ANGEL_TOTP_SECRET }}
+        run: python main.py tick
+
+      - name: Merge recent changes into the database file
+        if: always() && hashFiles('data/market.db') != ''
+        run: python -c "import sqlite3; print(sqlite3.connect('data/market.db').execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone())"
+
+      - name: Save the database
+        if: always() && hashFiles('data/market.db') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: data/market.db
+          key: market-db-${{ github.run_id }}

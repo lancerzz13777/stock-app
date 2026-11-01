@@ -1,0 +1,230 @@
+# =====================================================================
+#  Stock screener settings. Edit freely - no code changes needed.
+#  After editing, just re-run:  python main.py scan   (or plan / daily)
+# =====================================================================
+
+data:
+  # "all"      = every NSE stock in the EQ series (~2000, first download is slow: 15-40 min)
+  # "nifty500" = only Nifty 500 members (fast, good for trying things out)
+  universe: all
+  history_years: 10            # years of daily prices to keep (backtests in Stage 4 need 5-10)
+  db_path: data/market.db      # local SQLite cache
+  batch_size: 50               # tickers per Yahoo request - lower it if you get rate-limited
+  pause_seconds: 1.0           # polite pause between requests
+  fundamentals_max_age_days: 7 # re-fetch P/E, debt etc. only once a week
+  # Live prices for day trading: "auto" = Angel One (real-time) if its keys are in .env, else Yahoo (delayed).
+  # "yahoo" = always Yahoo.
+  live_source: auto
+
+# ---------------------------------------------------------------------
+#  Safety filters - stocks failing ANY of these are dropped before scoring.
+#  These keep out penny stocks and illiquid stocks.
+# ---------------------------------------------------------------------
+filters:
+  min_price: 50                # Rs per share
+  min_avg_volume: 50000        # shares traded per day (20-day average)
+  min_avg_turnover_cr: 2       # Rs crore traded per day (20-day average)
+  min_market_cap_cr: 1000      # Rs crore
+  min_history_days: 250        # need ~1 year of data for 200-DMA and 52-week levels
+  drop_if_market_cap_unknown: true
+
+# ---------------------------------------------------------------------
+#  Scoring rules. Each rule adds (or subtracts) "points" when it matches.
+#  Set enabled: false to switch a rule off, or change points/thresholds.
+#  Final score is shown as 0-100 (% of the maximum possible points).
+# ---------------------------------------------------------------------
+scoring:
+  rules:
+    # --- Technicals ---
+    trend_up:            {enabled: true, points: 15}                 # price > 50-DMA > 200-DMA
+    above_200dma:        {enabled: true, points: 5}                  # price above 200-DMA
+    below_200dma:        {enabled: true, points: -10}                # long-term downtrend
+    rsi_healthy:         {enabled: true, points: 10, min: 45, max: 65}
+    rsi_overbought:      {enabled: true, points: -10, above: 75}     # already ran up a lot
+    rsi_oversold:        {enabled: true, points: -5, below: 30}      # falling knife risk
+    macd_bullish:        {enabled: true, points: 10}                 # MACD above signal & histogram rising
+    volume_spike:        {enabled: true, points: 8, multiple: 1.5}   # today's volume >= 1.5x 20-day avg on an up day
+    breakout_20d:        {enabled: true, points: 8}                  # close above previous 20-day high
+    near_52w_high:       {enabled: true, points: 6, within_pct: 10}
+    far_below_52w_high:  {enabled: true, points: -8, below_pct: 40}
+    # --- Fundamentals ---
+    pe_below_sector:     {enabled: true, points: 10}                 # P/E below the sector median
+    pe_too_high:         {enabled: true, points: -5, above: 80}
+    pe_missing_or_loss:  {enabled: true, points: -10}                # no P/E usually = loss-making
+    low_debt:            {enabled: true, points: 8, max_de: 0.5}     # debt/equity (ignored for banks/NBFCs)
+    high_debt:           {enabled: true, points: -10, min_de: 1.5}
+    profit_growth:       {enabled: true, points: 10, min_pct: 10}    # earnings growth YoY %
+    profit_decline:      {enabled: true, points: -10}
+    revenue_growth:      {enabled: true, points: 6, min_pct: 10}
+    large_cap:           {enabled: true, points: 5, min_cr: 20000}
+    # --- News (Stage 6), counted over news.lookback_days ---
+    news_positive:       {enabled: true, points: 5}
+    news_negative:       {enabled: true, points: -15}               # bad news weighs more than good
+  top_n_report: 50             # how many rows to print in the ranked list
+
+# ---------------------------------------------------------------------
+#  Budget planner (Stage 3)
+# ---------------------------------------------------------------------
+planner:
+  max_picks: 2                 # never suggest more than this many stocks at once
+  min_trade_value: 1000        # Rs - below this, charges eat the profit; 2 picks need 2x this
+  min_score: 45                # only consider stocks scoring at least this (0-100)
+  stop_atr_multiple: 1.5       # stop-loss = buy - 1.5 x ATR (ATR = typical daily move in Rs)
+  target_atr_multiple: 3.0     # target    = buy + 3 x ATR  (2:1 before charges)
+  max_stop_pct: 7              # never risk more than 7% per share
+  max_target_pct: 12           # skip stocks whose target is >12% away (too volatile / charges too big)
+  min_net_profit: 50           # Rs, after ALL charges, if target is hit
+  # Net profit / net max loss, both AFTER charges. On ~Rs 1,500 trades the fixed DP charge
+  # alone drags a 2:1 setup down to ~1.3:1 - that's why bigger trades are more efficient.
+  min_reward_risk: 1.2
+  buy_slippage_pct: 1.0        # "don't buy above" = last close + 1%
+
+# ---------------------------------------------------------------------
+#  Backtest (Stage 4): replays the TECHNICAL rules + planner over past years
+# ---------------------------------------------------------------------
+backtest:
+  years: 10
+  capital: 3000                # starting money
+  trade_budget: 1500           # money per trade (not compounded - matches how you'd really trade)
+  max_positions: 2
+  min_tech_score: 55           # technical-only score (0-100) needed to buy
+  max_hold_days: 20            # sell at close after this many trading days if neither stop nor target hit
+
+# ---------------------------------------------------------------------
+#  Dip / crash alerts (Stage 5) - only for QUALITY stocks
+# ---------------------------------------------------------------------
+dips:
+  min_market_cap_cr: 5000      # quality = profitable, not over-borrowed, reasonably big
+  max_debt_to_equity: 1.0
+  min_fall_pct: 5              # alert when down this much in 1 day or 3 days
+  max_fall_pct: 10             # bigger falls get an extra-caution note
+  market_drop_pct: 2           # Nifty down >= 2% in a day = market-wide fall
+  breadth_drop_pct: 3          # ...or this % of quality stocks fell >= 3% together
+  breadth_pct: 40
+  max_excess_vs_market_pct: 4  # fell more than 4% worse than Nifty = probably company-specific
+  stop_pct: 8                  # suggested stop-loss below the dip price (dip rules are NOT backtested)
+
+# ---------------------------------------------------------------------
+#  News (Stage 6) - free public RSS feeds, checked every 30 minutes
+# ---------------------------------------------------------------------
+news:
+  lookback_days: 3             # news this recent affects the score
+  ai_tagging: false            # true = use Claude (PAID, needs ANTHROPIC_API_KEY). false = free keywords
+  ai_model: claude-opus-5-5
+  feeds:
+    - {name: NSE announcements, url: "https://nsearchives.nseindia.com/content/RSS/Online_announcements.xml"}
+    - {name: ET Markets,        url: "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"}
+    - {name: ET Stocks,         url: "https://economictimes.indiatimes.com/markets/stocks/news/rssfeeds/2146842.cms"}
+    - {name: Moneycontrol,      url: "https://www.moneycontrol.com/rss/business.xml"}
+    - {name: Livemint Markets,  url: "https://www.livemint.com/rss/markets"}
+    - {name: Business Standard, url: "https://www.business-standard.com/rss/markets-106.rss"}
+
+# ---------------------------------------------------------------------
+#  Telegram alerts + always-on bot (Stage 7). Token & chat id go in .env
+# ---------------------------------------------------------------------
+alerts:
+  default_budget: 1500         # used for the automatic evening message; send "/plan 2500" to change per message
+  daily_report_time: "16:15"   # IST, after the market closes
+  dip_scan_minutes: 15         # during market hours
+  news_scan_minutes: 30
+
+# ---------------------------------------------------------------------
+#  Paper trading (Stage 8) - fake money, real prices
+# ---------------------------------------------------------------------
+paper:
+  auto_log_daily_picks: true   # the bot logs each evening's picks as paper trades
+  max_hold_days: 20
+  trust_after_days: 60         # ~2-3 months before you consider real money
+  trust_after_trades: 15
+
+# Real-money auto-trading is NOT built and stays off. If ever added, it will only use an
+# official broker API and only after you change this yourself.
+live_trading:
+  enabled: false
+
+# ---------------------------------------------------------------------
+#  STRATEGY LAB: famous investors' strategies tested on NSE (monthly review)
+# ---------------------------------------------------------------------
+lab:
+  years: 10
+  split_date: auto             # auto = choose the winner on data up to 4 years ago, check it on the 4 years since.
+                               # The window moves forward every month, so the champion keeps up with the market.
+                               # (Or a fixed date like "2021-12-31".)
+  unseen_years: 4              # how many recent years are kept "unseen" for the honest check
+  auto_rerun: true             # the bot re-runs the Lab at every month-end review (and if it's >35 days old)
+  positions: 10                # stocks held at once in the test (the classic way these strategies are run)
+  hold_buffer: 2               # keep a stock while it's still in the top 20 (= positions x 2) - fewer trades
+  capital: 100000              # test capital (Rs) - large enough that charges don't distort the comparison
+  risk_free_pct: 6.5           # what idle money earns in a liquid fund / FD
+
+# ---------------------------------------------------------------------
+#  DAY TRADING (intraday): buy and sell the same day, everything closed by 3:15 PM
+# ---------------------------------------------------------------------
+intraday:
+  budget: 1500                 # Rs per trade (the menu asks you each time)
+  # Brokers let you trade 5x your money intraday ("MIS leverage"). It multiplies BOTH profit
+  # and loss. 1 = no leverage (safest). Only raise it after paper trading proves the strategy.
+  leverage: 1
+  universe_size: 100           # scan the N most liquid stocks (intraday needs heavy volume)
+  min_price: 100
+  interval: 5m                 # 5-minute candles
+  opening_range_minutes: 15    # 9:15-9:30 range; a break above it is the signal
+  first_entry: "09:30"
+  last_entry: "13:30"          # no new trades after this - not enough time left
+  square_off: "15:15"          # close everything by this time (brokers auto-close ~3:20 with a fee)
+  volume_multiple: 1.5         # breakout candle volume vs average 5-min volume
+  max_stop_pct: 1.0            # stop never further than 1% from entry
+  min_stop_pct: 0.3            # ...or closer than 0.3% (too tight = random noise stops you out)
+  reward_risk: 2.0             # target = 2x the risk
+  max_trades_per_day: 2
+  allow_short: false           # short selling (profit when price falls). Off for beginners.
+  backtest_days: 60            # Yahoo gives ~60 days of free 5-minute history
+  scan_minutes: 5              # live scan frequency during market hours
+  retest_days: 7               # the bot re-tests this setup on the last 60 days every week. If it LOST money,
+                               # day-trade alerts pause (signals are still paper-tested) until it works again.
+
+# Chat advisor - FREE Google Gemini with live Google Search (key from aistudio.google.com/apikey, no card)
+advisor:
+  your_name: Aayush            # how the advisor greets you
+  model: auto                  # auto = newest free Gemini 'flash' model
+  max_questions_per_day: 40    # keeps you well inside Google's free daily quota
+  morning_brief: "08:45"       # weekday morning message with one idea for the day ("off" to disable)
+
+# Paper wallet: practise day trading with fake money. Buying locks money, exiting releases it.
+wallet:
+  starting_cash: 10000         # fake rupees you start with (add more any time from the desk)
+  default_stop_pct: 1.0        # if you don't set your own stop-loss
+  default_target_pct: 2.0      # if you don't set your own target (2x the risk)
+  price_refresh_seconds: 30    # how often the desk refreshes prices on Yahoo (delayed data)
+  price_refresh_seconds_live: 5  # ...and with Angel One live data
+  square_off_warning: "15:05"  # start warning you to exit
+  auto_square_off: "15:20"     # still open? closed automatically, like a broker would (they charge extra)
+
+# Intraday charges (Zerodha-style, 2024-25). VERIFY with your broker.
+charges_intraday:
+  brokerage_pct: 0.03          # 0.03% per order...
+  brokerage_min_per_order: 0
+  brokerage_max_per_order: 20  # ...or Rs 20, whichever is lower
+  stt_buy_pct: 0
+  stt_sell_pct: 0.025          # STT only on the sell side for intraday
+  exchange_txn_pct: 0.00297
+  sebi_fee_pct: 0.0001
+  stamp_duty_buy_pct: 0.003
+  gst_pct: 18
+  dp_charge_per_sell: 0        # no DP charge - shares never reach your demat
+
+# ---------------------------------------------------------------------
+#  Trading charges for DELIVERY (buy today, sell another day).
+#  Defaults approximate a zero-brokerage discount broker (Zerodha/Dhan style)
+#  as of 2024-25. VERIFY against your broker's current charges page.
+# ---------------------------------------------------------------------
+charges:
+  brokerage_pct: 0.0           # % of order value (0 for free-delivery brokers)
+  brokerage_min_per_order: 0   # Rs
+  brokerage_max_per_order: 20  # Rs cap per order
+  stt_pct: 0.1                 # Securities Transaction Tax, on buy AND sell (delivery)
+  exchange_txn_pct: 0.00297    # NSE transaction charge
+  sebi_fee_pct: 0.0001         # Rs 10 per crore
+  stamp_duty_buy_pct: 0.015    # on buy side only
+  gst_pct: 18                  # on brokerage + exchange + SEBI fees
+  dp_charge_per_sell: 15.93    # flat Rs per stock per sell day (incl. GST) - big on small trades!
