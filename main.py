@@ -616,7 +616,7 @@ def main():
         ap = argparse.ArgumentParser(description="Personal NSE stock screener")
         sub = ap.add_subparsers(dest="cmd", required=True)
         for name in ("lab", "picks", "check", "live-setup", "desk", "dt-watch", "dt-scan", "dt-backtest", "dt-paper", "scan", "backtest", "paper", "dips", "news",
-                     "run", "telegram-test", "menu"):
+                     "run", "tick", "telegram-test", "menu"):
             sub.add_parser(name)
         for name in ("update", "daily", "plan"):
             p = sub.add_parser(name)
