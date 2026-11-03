@@ -4,6 +4,11 @@ name: Stock bot
 
 on:
   workflow_dispatch:
+    inputs:
+      export:
+        description: "Only download the saved database (to move the bot to another machine)"
+        type: boolean
+        default: false
   schedule:
     - cron: "50 10 * * 1-5"   # 4:20 PM IST on weekdays: evening report even if cron-job.org has a problem
 
@@ -50,8 +55,17 @@ jobs:
           mkdir -p data
           curl -fsSL "https://github.com/${{ github.repository }}/releases/download/seed/market.db.gz" | gunzip > data/market.db
 
+      - name: Export the database
+        if: inputs.export
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-db
+          path: data/market.db
+          retention-days: 1
+
       - name: Run the bot once
         id: tick
+        if: ${{ !inputs.export }}
         env:
           BOT_PUBLIC_LOGS: "1"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

@@ -15,6 +15,16 @@ if ! swapon --show | grep -q /swapfile; then
   grep -q /swapfile /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
 fi
 
+# A laptop used as a server: never sleep, keep running with the lid closed
+if [ -d /sys/class/power_supply ] || [ -f /etc/systemd/logind.conf ]; then
+  echo "== Keeping this machine awake =="
+  sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target >/dev/null 2>&1
+  sudo mkdir -p /etc/systemd/logind.conf.d
+  printf '[Login]\nHandleLidSwitch=ignore\nHandleLidSwitchExternalPower=ignore\nHandleLidSwitchDocked=ignore\n' \
+    | sudo tee /etc/systemd/logind.conf.d/stockbot-lid.conf >/dev/null
+  sudo systemctl kill -s HUP systemd-logind   # reload the lid setting without logging anyone out
+fi
+
 echo "== Creating the Python environment (a few minutes) =="
 [ -d .venv ] || python3 -m venv .venv
 .venv/bin/pip install -q --upgrade pip
