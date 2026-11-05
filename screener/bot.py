@@ -65,6 +65,7 @@ class Bot:
         self.jobs = ThreadPoolExecutor(1, thread_name_prefix="jobs")    # scheduled work
         self.slow = ThreadPoolExecutor(2, thread_name_prefix="slow")    # slow commands (2 at once)
         self.fast = ThreadPoolExecutor(1, thread_name_prefix="wallet")  # exit alerts - never wait behind a scan
+        self.dip_pool = ThreadPoolExecutor(1, thread_name_prefix="dips")
         self._running: dict = {}
         self.run_once = False                       # True in tick(): everything runs right here, one by one
         self.job_failed = False
@@ -758,13 +759,15 @@ class Bot:
                     if self._submit(self.fast, "wallet_check", self.wallet_check):
                         self.last_wallet_check = now
                 scans = now.time() >= dtime(9, 30) and self.trading_today(now)
-                if scans and self._due(self.last_dt_scan, self.cfg["intraday"]["scan_minutes"], now):
+                # Day trades: scan right after each 5-minute candle closes (+20 s for the data to arrive)
+                candle = now.replace(minute=now.minute - now.minute % 5, second=0, microsecond=0)
+                if scans and now >= candle + timedelta(seconds=20) and self.last_dt_scan != candle:
                     if self._submit(self.jobs, "dt_scan", self.dt_scan):
-                        self.last_dt_scan = now
+                        self.last_dt_scan = candle
                 if dtime(15, 10) <= now.time() <= MARKET_CLOSE and self.trading_today(now):
                     self._submit(self.fast, "square_off", self.square_off_reminder)
                 if scans and self._due(self.last_dip_scan, a["dip_scan_minutes"], now):
-                    if self._submit(self.jobs, "dip_scan", self.dip_scan):
+                    if self._submit(self.dip_pool, "dip_scan", self.dip_scan):  # own worker: never delays a day-trade scan
                         self.last_dip_scan = now
                 brief = self.cfg.get("advisor", {}).get("morning_brief", "off")
                 if (advisor.configured() and brief not in ("off", "", None) and now.weekday() < 5

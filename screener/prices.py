@@ -25,7 +25,8 @@ _nse_days: dict[date, pd.DataFrame] = {}
 
 def nse_day(day: date) -> pd.DataFrame | None:
     """Official closes for one trading day: every equity plus the Nifty 50 (as ^NSEI).
-    Columns symbol, date, open, high, low, close, volume. None if NSE hasn't published that day."""
+    Columns symbol, date, open, high, low, close, volume, prev (NSE's previous close, which
+    reflects splits and bonuses). None if NSE hasn't published that day."""
     if day in _nse_days:
         return _nse_days[day]
     from .universe import HEADERS
@@ -37,7 +38,7 @@ def nse_day(day: date) -> pd.DataFrame | None:
     b = pd.read_csv(z.open(z.namelist()[0]))
     b = b[b["SctySrs"].isin(["EQ", "BE", "BZ"])]
     out = pd.DataFrame({"symbol": b["TckrSymb"], "open": b["OpnPric"], "high": b["HghPric"], "low": b["LwPric"],
-                        "close": b["ClsPric"], "volume": b["TtlTradgVol"]})
+                        "close": b["ClsPric"], "volume": b["TtlTradgVol"], "prev": b["PrvsClsgPric"]})
     r = requests.get(INDEX_URL.format(day), headers=HEADERS, timeout=30)
     if r.ok:
         ix = pd.read_csv(io.BytesIO(r.content))
@@ -45,17 +46,18 @@ def nse_day(day: date) -> pd.DataFrame | None:
         if len(n):
             n = n.iloc[0]
             out.loc[len(out)] = [NIFTY_SYMBOL, n["Open Index Value"], n["High Index Value"], n["Low Index Value"],
-                                 n["Closing Index Value"], 0.0]
+                                 n["Closing Index Value"], 0.0, float("nan")]
     out.insert(1, "date", day.isoformat())
     _nse_days[day] = out
     return out
 
 
-def fill_from_nse(con, symbols: list[str], days: int = 10) -> int:
+def fill_from_nse(con, symbols: list[str], days: int = 10) -> tuple[int, set[str]]:
     """Writes NSE's official closes for the last `days` days (they replace Yahoo's for those days).
-    Fixes days Yahoo published late or skipped. Returns how many trading days were found."""
+    Returns (trading days found, stocks whose stored history no longer lines up: NSE's previous close
+    differs from ours, i.e. a split, bonus or big dividend - their history must be downloaded again)."""
     want = set(symbols) | {NIFTY_SYMBOL}
-    found = 0
+    found, adjusted = 0, set()
     for back in range(days, -1, -1):
         d = date.today() - timedelta(days=back)
         if d.weekday() >= 5:
@@ -69,10 +71,15 @@ def fill_from_nse(con, symbols: list[str], days: int = 10) -> int:
             continue
         found += 1
         rows = df[df["symbol"].isin(want)]
+        prev_day = con.execute("SELECT MAX(date) FROM prices WHERE symbol=? AND date<?",
+                               (NIFTY_SYMBOL, d.isoformat())).fetchone()[0]
+        stored = dict(con.execute("SELECT symbol, close FROM prices WHERE date=?", (prev_day,)))
+        adjusted |= {s for s, p in zip(rows["symbol"], rows["prev"])
+                     if stored.get(s) and p > 0 and abs(stored[s] / p - 1) > 0.005}
         con.executemany("INSERT OR REPLACE INTO prices VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        rows.itertuples(index=False, name=None))
+                        rows.drop(columns="prev").itertuples(index=False, name=None))
     con.commit()
-    return found
+    return found, adjusted
 
 
 def _yahoo(symbol: str) -> str:
@@ -119,17 +126,19 @@ def _batches(items, n):
         yield items[i:i + n]
 
 
-def update_prices(con, symbols: list[str], cfg: dict) -> None:
+def update_prices(con, symbols: list[str], cfg: dict, refetch=(), nse_ok: bool = False) -> None:
+    """Yahoo fills what NSE's daily files can't: full history for new stocks, the re-download after a
+    split (`refetch`), and any stock still behind. Without NSE's files (nse_ok False) it re-reads
+    every stock's last days from Yahoo instead, which is much slower."""
     years = cfg["data"]["history_years"]
     batch_size = cfg["data"]["batch_size"]
     pause = cfg["data"]["pause_seconds"]
 
     last_dates = dict(con.execute("SELECT symbol, MAX(date) FROM prices GROUP BY symbol").fetchall())
     new = [s for s in symbols if s not in last_dates]
-    # Always re-read the last week: replaces a half-day candle saved during market hours, and fills
-    # days Yahoo had missing earlier (it sometimes publishes a day's candle late)
-    stale = [s for s in symbols if s in last_dates]
-    refetch = []
+    upto = max(last_dates.values(), default="") if nse_ok else date.today().isoformat()
+    refetch = [s for s in refetch if s in last_dates]
+    stale = [s for s in symbols if s in last_dates and last_dates[s] < upto and s not in refetch]
 
     with ui.progress() as bar:
         # 1) Full history for stocks we've never downloaded

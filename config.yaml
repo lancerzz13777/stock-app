@@ -125,7 +125,7 @@ news:
 alerts:
   default_budget: 1500         # used for the automatic evening message; send "/plan 2500" to change per message
   daily_report_time: "18:30"   # IST; NSE publishes the official closes around 6 PM (retried every 30 min)
-  dip_scan_minutes: 15         # during market hours
+  dip_scan_minutes: 5          # during market hours (you are only messaged when a good dip appears)
   news_scan_minutes: 30
 
 # ---------------------------------------------------------------------
@@ -179,7 +179,7 @@ intraday:
   max_trades_per_day: 2
   allow_short: false           # short selling (profit when price falls). Off for beginners.
   backtest_days: 60            # Yahoo gives ~60 days of free 5-minute history
-  scan_minutes: 5              # live scan frequency during market hours
+  scan_minutes: 5              # day-trade scans run right after each 5-minute candle closes
   retest_days: 7               # the bot re-tests this setup on the last 60 days every week. If it LOST money,
                                # day-trade alerts pause (signals are still paper-tested) until it works again.
 

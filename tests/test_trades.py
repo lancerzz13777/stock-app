@@ -146,9 +146,9 @@ class NseFiles(unittest.TestCase):
     def test_reads_official_closes_and_the_nifty(self):
         import io, zipfile
         from screener import prices
-        bhav = ("TradDt,TckrSymb,SctySrs,OpnPric,HghPric,LwPric,ClsPric,TtlTradgVol\n"
-                "2026-11-05,SBIN,EQ,990,1009.6,987.2,1006.4,25273153\n"
-                "2026-11-05,SOMEBOND,GS,100,100,100,100,5\n")
+        bhav = ("TradDt,TckrSymb,SctySrs,OpnPric,HghPric,LwPric,ClsPric,PrvsClsgPric,TtlTradgVol\n"
+                "2026-11-05,SBIN,EQ,990,1009.6,987.2,1006.4,979,25273153\n"
+                "2026-11-05,SOMEBOND,GS,100,100,100,100,100,5\n")
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as z:
             z.writestr("bhav.csv", bhav)
@@ -163,6 +163,26 @@ class NseFiles(unittest.TestCase):
         self.assertEqual(df.set_index("symbol").loc["^NSEI", "close"], 24536.6)
         self.assertEqual(df.set_index("symbol").loc["SBIN", "close"], 1006.4)
         self.assertEqual(set(df["date"]), {"2026-11-05"})
+        self.assertEqual(df.set_index("symbol").loc["SBIN", "prev"], 979)
+
+
+class SplitCheck(BotCase):
+    def test_a_split_marks_the_stock_for_a_fresh_history_and_saves_nse_closes(self):
+        import pandas as pd
+        from datetime import date
+        from screener import prices
+        day = date.today()
+        prev = (day - timedelta(days=1)).isoformat()
+        self.con.executemany("INSERT INTO prices VALUES (?, ?, ?, ?, ?, ?, ?)", [
+            ("^NSEI", prev, 1, 1, 1, 24000, 0), ("SBIN", prev, 1, 1, 1, 1000, 1), ("TCS", prev, 1, 1, 1, 2500, 1)])
+        nse = pd.DataFrame({"symbol": ["SBIN", "TCS", "^NSEI"], "date": day.isoformat(), "open": 1.0, "high": 1.0,
+                            "low": 1.0, "close": [505.0, 2510.0, 24100.0], "volume": 1.0,
+                            "prev": [500.0, 2500.0, float("nan")]})   # SBIN split 1:2, TCS a normal day
+        with mock.patch.object(prices, "nse_day", lambda d: nse if d == day else None):
+            found, adjusted = prices.fill_from_nse(self.con, ["SBIN", "TCS"], days=0)
+        self.assertEqual((found, adjusted), (1, {"SBIN"}))
+        self.assertEqual(self.con.execute("SELECT close FROM prices WHERE symbol='TCS' AND date=?",
+                                          (day.isoformat(),)).fetchone()[0], 2510.0)
 
 
 class PriceTables(BotCase):
