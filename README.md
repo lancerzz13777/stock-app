@@ -264,8 +264,9 @@ Strategy Lab and the weekly re-tests all run there. **You can switch your PC off
 - **Changed `.env` (e.g. Angel One or Gemini keys)?** Run `deploy\deploy_to_server.bat` again (a full deploy). ⚠️ This
   replaces the server's data with the PC's, so paper trades made since the last deploy are lost. Or edit it on the
   server: `ssh -i KEY ubuntu@IP`, then `nano stock-app/.env`, then restart the bot (next line).
-- **Restart or update without the admin password:** `ssh USER@IP "cd stock-app && git pull && pkill -f 'main.py run'"`.
-  The service has `Restart=always`, so the bot comes back on the new code within 30 seconds.
+- **Restart or update without the admin password:** `ssh USER@IP "cd stock-app && git pull && pkill -f '[m]ain.py run'"`.
+  The service has `Restart=always`, so the bot comes back on the new code within 30 seconds. (The `[m]` stops
+  `pkill` from matching, and killing, its own command line.)
 - **Only ONE place runs the bot.** After deploying, menu 13 on the PC refuses to start it, because two copies would
   fight over Telegram. Everything else in the PC menu still works, but on the PC's own copy of the data. Your live
   wallet is on the server and in Telegram.
