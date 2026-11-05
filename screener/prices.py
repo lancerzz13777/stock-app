@@ -7,7 +7,7 @@ its old stored prices no longer line up, so we detect that and re-download it fu
 import io
 import time
 import zipfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import requests
@@ -45,8 +45,9 @@ def nse_day(day: date) -> pd.DataFrame | None:
         n = ix[ix["Index Name"].str.strip() == "Nifty 50"]
         if len(n):
             n = n.iloc[0]
-            out.loc[len(out)] = [NIFTY_SYMBOL, n["Open Index Value"], n["High Index Value"], n["Low Index Value"],
-                                 n["Closing Index Value"], 0.0, float("nan")]
+            # some days a few cells hold "-", which makes these columns text: read each value as a number
+            out.loc[len(out)] = [NIFTY_SYMBOL, *(float(n[c]) for c in ("Open Index Value", "High Index Value",
+                                 "Low Index Value", "Closing Index Value")), 0.0, float("nan")]
     out.insert(1, "date", day.isoformat())
     _nse_days[day] = out
     return out
@@ -54,28 +55,31 @@ def nse_day(day: date) -> pd.DataFrame | None:
 
 def fill_from_nse(con, symbols: list[str], days: int = 10) -> tuple[int, set[str]]:
     """Writes NSE's official closes for the last `days` days (they replace Yahoo's for those days).
-    Returns (trading days found, stocks whose stored history no longer lines up: NSE's previous close
-    differs from ours, i.e. a split, bonus or big dividend - their history must be downloaded again)."""
+    Returns (trading days found, stocks with a split, bonus or big dividend: NSE's "previous close" no
+    longer equals the close in NSE's file for the trading day before - their history must be downloaded again)."""
+    from .intraday import IST
     want = set(symbols) | {NIFTY_SYMBOL}
-    found, adjusted = 0, set()
+    found, adjusted, before = 0, set(), None
+    today = datetime.now(IST).date()  # the server's clock may be UTC
     for back in range(days, -1, -1):
-        d = date.today() - timedelta(days=back)
+        d = today - timedelta(days=back)
         if d.weekday() >= 5:
             continue
         try:
             df = nse_day(d)
         except Exception as e:  # NSE down: Yahoo's prices stay
             ui.warn(f"NSE closes for {d}: {str(e)[:80]}")
+            before = None       # can't compare the next day with a day we don't have
             continue
-        if df is None:
+        if df is None:          # holiday or not published: the next day's "previous close" is still `before`'s
             continue
         found += 1
         rows = df[df["symbol"].isin(want)]
-        prev_day = con.execute("SELECT MAX(date) FROM prices WHERE symbol=? AND date<?",
-                               (NIFTY_SYMBOL, d.isoformat())).fetchone()[0]
-        stored = dict(con.execute("SELECT symbol, close FROM prices WHERE date=?", (prev_day,)))
-        adjusted |= {s for s, p in zip(rows["symbol"], rows["prev"])
-                     if stored.get(s) and p > 0 and abs(stored[s] / p - 1) > 0.005}
+        if before is not None:
+            last = dict(zip(before["symbol"], before["close"]))
+            adjusted |= {s for s, p in zip(rows["symbol"], rows["prev"])
+                         if last.get(s) and p > 0 and abs(last[s] / p - 1) > 0.005}
+        before = df
         con.executemany("INSERT OR REPLACE INTO prices VALUES (?, ?, ?, ?, ?, ?, ?)",
                         rows.drop(columns="prev").itertuples(index=False, name=None))
     con.commit()

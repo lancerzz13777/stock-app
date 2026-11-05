@@ -153,7 +153,8 @@ class NseFiles(unittest.TestCase):
         with zipfile.ZipFile(buf, "w") as z:
             z.writestr("bhav.csv", bhav)
         index = ("Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,Closing Index Value\n"
-                 "Nifty 50,05-11-2026,24378.05,24579.9,24296.3,24536.6\n")
+                 "Nifty 50,05-11-2026,24378.05,24579.9,24296.3,24536.6\n"
+                 "Some New Index,05-11-2026,-,-,-,-\n")   # a "-" turns the columns into text, as on real days
         replies = iter([mock.Mock(status_code=200, ok=True, content=buf.getvalue(), raise_for_status=lambda: None),
                         mock.Mock(status_code=200, ok=True, content=index.encode())])
         with mock.patch.object(prices.requests, "get", lambda *a, **k: next(replies)):
@@ -169,20 +170,20 @@ class NseFiles(unittest.TestCase):
 class SplitCheck(BotCase):
     def test_a_split_marks_the_stock_for_a_fresh_history_and_saves_nse_closes(self):
         import pandas as pd
-        from datetime import date
         from screener import prices
-        day = date.today()
-        prev = (day - timedelta(days=1)).isoformat()
-        self.con.executemany("INSERT INTO prices VALUES (?, ?, ?, ?, ?, ?, ?)", [
-            ("^NSEI", prev, 1, 1, 1, 24000, 0), ("SBIN", prev, 1, 1, 1, 1000, 1), ("TCS", prev, 1, 1, 1, 2500, 1)])
-        nse = pd.DataFrame({"symbol": ["SBIN", "TCS", "^NSEI"], "date": day.isoformat(), "open": 1.0, "high": 1.0,
-                            "low": 1.0, "close": [505.0, 2510.0, 24100.0], "volume": 1.0,
-                            "prev": [500.0, 2500.0, float("nan")]})   # SBIN split 1:2, TCS a normal day
-        with mock.patch.object(prices, "nse_day", lambda d: nse if d == day else None):
-            found, adjusted = prices.fill_from_nse(self.con, ["SBIN", "TCS"], days=0)
-        self.assertEqual((found, adjusted), (1, {"SBIN"}))
-        self.assertEqual(self.con.execute("SELECT close FROM prices WHERE symbol='TCS' AND date=?",
-                                          (day.isoformat(),)).fetchone()[0], 2510.0)
+        wed, thu = datetime(2026, 11, 4).date(), datetime(2026, 11, 5).date()
+
+        def frame(day, close, prev):
+            return pd.DataFrame({"symbol": ["SBIN", "TCS", "^NSEI"], "date": day.isoformat(), "open": 1.0,
+                                 "high": 1.0, "low": 1.0, "close": close, "volume": 1.0, "prev": prev})
+        files = {wed: frame(wed, [1000.0, 2500.0, 24000.0], [990.0, 2490.0, float("nan")]),
+                 thu: frame(thu, [505.0, 2510.0, 24100.0], [500.0, 2500.0, float("nan")])}  # SBIN split 1:2
+        clock = mock.Mock(now=lambda tz=None: datetime(2026, 11, 5, 19, 0, tzinfo=IST))
+        with mock.patch.object(prices, "nse_day", files.get), mock.patch.object(prices, "datetime", clock):
+            found, adjusted = prices.fill_from_nse(self.con, ["SBIN", "TCS"], days=3)   # Mon..Thu, Mon/Tue missing
+        self.assertEqual((found, adjusted), (2, {"SBIN"}))
+        self.assertEqual(self.con.execute("SELECT close FROM prices WHERE symbol='TCS' AND date='2026-11-05'")
+                         .fetchone()[0], 2510.0)
 
 
 class PriceTables(BotCase):
