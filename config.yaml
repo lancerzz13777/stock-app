@@ -125,7 +125,7 @@ news:
 alerts:
   default_budget: 1500         # used for the automatic evening message; send "/plan 2500" to change per message
   daily_report_time: "18:30"   # IST; NSE publishes the official closes around 6 PM (retried every 30 min)
-  dip_scan_minutes: 5          # during market hours (you are only messaged when a good dip appears)
+  dip_scan_minutes: 10         # during market hours; each check downloads ~1,000 stocks (~2 min on the laptop). Messages only for a good dip
   news_scan_minutes: 30
 
 # ---------------------------------------------------------------------
