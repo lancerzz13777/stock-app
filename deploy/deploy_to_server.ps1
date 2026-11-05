@@ -2,7 +2,7 @@
 #   First time:   deploy_to_server.bat            (uploads code + your data + .env, installs, starts)
 #   Code update:  deploy_to_server.bat -CodeOnly  (keeps the server's own data, wallet and .env)
 # After a first deploy the PC stops running the bot (two copies would fight over Telegram).
-param([string]$Ip, [string]$Key, [switch]$CodeOnly)
+param([string]$Ip, [string]$Key, [string]$User, [switch]$CodeOnly)
 $ErrorActionPreference = "Stop"
 $App = Split-Path $PSScriptRoot -Parent
 $SettingsFile = Join-Path $App "deploy\server.txt"   # remembers IP + key path for next time
@@ -11,17 +11,19 @@ if (Test-Path $SettingsFile) {
     $saved = Get-Content $SettingsFile
     if (-not $Ip) { $Ip = $saved[0] }
     if (-not $Key) { $Key = $saved[1] }
+    if (-not $User -and $saved.Count -gt 2) { $User = $saved[2] }
 }
+if (-not $User) { $User = "ubuntu" }   # Oracle's default; your own Ubuntu machine uses your login name
 if (-not $Ip) { $Ip = Read-Host "Server public IP address (from the Oracle instance page)" }
 if (-not $Key) { $Key = Read-Host "Full path of the private key file you downloaded (e.g. C:\Users\you\Downloads\ssh-key-2026.key)" }
 $Ip = $Ip.Trim(); $Key = $Key.Trim().Trim('"')
 if (-not (Test-Path $Key)) { throw "Key file not found: $Key" }
-Set-Content $SettingsFile @($Ip, $Key)
+Set-Content $SettingsFile @($Ip, $Key, $User)
 
 # Windows ssh refuses keys other users could read - make it private to you
 icacls $Key /inheritance:r /grant:r "$($env:USERNAME):R" | Out-Null
 $Ssh = @("-i", $Key, "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=20")
-$Target = "ubuntu@$Ip"
+$Target = "$User@$Ip"
 
 Write-Host "== Checking the server answers ==" -ForegroundColor Cyan
 & ssh @Ssh $Target "echo connected to `$(hostname)"

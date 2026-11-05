@@ -124,7 +124,7 @@ news:
 # ---------------------------------------------------------------------
 alerts:
   default_budget: 1500         # used for the automatic evening message; send "/plan 2500" to change per message
-  daily_report_time: "16:15"   # IST, after the market closes
+  daily_report_time: "18:30"   # IST; NSE publishes the official closes around 6 PM (retried every 30 min)
   dip_scan_minutes: 15         # during market hours
   news_scan_minutes: 30
 

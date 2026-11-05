@@ -64,10 +64,10 @@ def load_wide(con, years: int) -> dict[str, pd.DataFrame]:
     since = (pd.Timestamp.today() - pd.DateOffset(years=years + 1, days=60)).strftime("%Y-%m-%d")
     df = pd.read_sql_query("SELECT symbol, date, high, low, close, volume FROM prices WHERE date >= ?", con,
                            params=(since,))
-    wide = {c: df.pivot(index="date", columns="symbol", values=c).sort_index() for c in ("close", "high", "low", "volume")}
-    for k in wide:
-        wide[k].index = pd.to_datetime(wide[k].index)
-    return wide
+    # One reshape for all four values (not four pivots), in float32: half the memory on a small server
+    w = df.set_index(["date", "symbol"]).astype("float32").unstack().sort_index()
+    w.index = pd.to_datetime(w.index)
+    return {c: w[c] for c in ("close", "high", "low", "volume")}
 
 
 def features(w: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:

@@ -305,7 +305,7 @@ def live_scan(con, cfg: dict, budget: float) -> dict:
     ic = cfg["intraday"]
     from . import live
     symbols = liquid_universe(con, cfg)
-    data = live.candles(symbols, cfg, days=5)
+    data = live.candles(symbols, cfg, days=2)  # today + yesterday (for the average volume) is all it uses
     now = datetime.now(IST).replace(tzinfo=None)
     today = now.date()
     signals, status, newest = [], [], None

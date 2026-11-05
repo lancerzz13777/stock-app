@@ -137,7 +137,6 @@ def best_dips(con, cfg: dict, live: bool = False, budget: float | None = None) -
     budget = budget or cfg["alerts"]["default_budget"]
     stop_pct = cfg["dips"].get("stop_pct", 8)
     fund = fundamentals.load_fundamentals(con)
-    hist = prices.load_recent_prices(con, days=320)
     ranked = []
     for a in alerts:
         if a["kind"] != "OPPORTUNITY":
@@ -146,8 +145,9 @@ def best_dips(con, cfg: dict, live: bool = False, budget: float | None = None) -
         r = fund.loc[a["symbol"]].to_dict() if a["symbol"] in fund.index else {}
         scores = [p / j for p, j, _ in gurus.score(r).values() if j]
         quality = sum(scores) / len(scores) if scores else 0
-        h = hist.get(a["symbol"])
-        sma200 = h["close"].tail(200).mean() if h is not None and len(h) >= 200 else None
+        n, sma200 = con.execute("SELECT COUNT(*), AVG(close) FROM (SELECT close FROM prices WHERE symbol=? "
+                                "ORDER BY date DESC LIMIT 200)", (a["symbol"],)).fetchone()
+        sma200 = sma200 if n >= 200 else None
         uptrend = bool(sma200 and a["price"] > sma200)
         if quality < 0.5 or not uptrend:
             out["weak"] += 1

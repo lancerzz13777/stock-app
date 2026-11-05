@@ -25,6 +25,7 @@ def update_all(cfg, con, limit=None):
 
     ui.console.print("[bold]2/4[/] Daily prices")
     prices.update_prices(con, symbols + [prices.NIFTY_SYMBOL], cfg)
+    ui.info(f"    + official NSE closes for {prices.fill_from_nse(con, symbols)} recent trading days")
 
     ui.console.print("[bold]3/4[/] Fundamentals (only stocks passing the price/liquidity filters)")
     snap = scoring.build_snapshots(prices.load_recent_prices(con))

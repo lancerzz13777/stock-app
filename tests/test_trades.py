@@ -6,7 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -17,7 +17,7 @@ from screener.config import load_config
 from screener.intraday import IST
 
 OPEN = datetime(2026, 11, 2, 11, 0, tzinfo=IST)     # a Monday, market open
-EVENING = datetime(2026, 11, 2, 17, 0, tzinfo=IST)
+EVENING = datetime(2026, 11, 2, 19, 0, tzinfo=IST)  # after the 18:30 report time
 PRICES = {"SBIN": 970.0, "TCS": 2500.0}
 
 
@@ -100,9 +100,9 @@ class Holiday(BotCase):
 
 
 class RunOnce(BotCase):
-    def tick(self):
-        self.now = EVENING
-        with mock.patch.object(botmod, "datetime", mock.Mock(wraps=datetime, now=lambda tz=None: EVENING,
+    def tick(self, at):
+        self.now = at
+        with mock.patch.object(botmod, "datetime", mock.Mock(wraps=datetime, now=lambda tz=None: at,
                                                              fromisoformat=datetime.fromisoformat)), \
                 mock.patch.object(self.bot, "news_scan"):
             self.bot.tick()
@@ -112,16 +112,72 @@ class RunOnce(BotCase):
 
     def test_failed_job_fails_the_run_and_the_evening_job_retries(self):
         with mock.patch.object(self.bot, "daily_job", self.boom), self.assertRaises(SystemExit) as e:
-            self.tick()
+            self.tick(EVENING)
         self.assertEqual(e.exception.code, 1)
-        self.assertNotEqual(self.bot.state_get("daily_done"), EVENING.date().isoformat())
 
         self.bot.job_failed = False  # a real next run is a new process
         done = mock.Mock()
         with mock.patch.object(self.bot, "daily_job", done):
-            self.tick()
+            self.tick(EVENING + timedelta(minutes=10))   # too soon: waits 30 minutes between tries
+            done.assert_not_called()
+            self.tick(EVENING + timedelta(minutes=31))
         done.assert_called_once()
+
+
+class EveningJob(BotCase):
+    def run_job(self, at, nse):
+        self.now = at
+        with mock.patch.object(botmod, "datetime", mock.Mock(wraps=datetime, now=lambda tz=None: at)), \
+                mock.patch.object(botmod.prices, "nse_day", lambda day: nse), \
+                mock.patch.object(botmod.pipeline, "update_all") as update:
+            self.bot.daily_job()
+        return update
+
+    def test_waits_for_nse_closes_then_calls_it_a_holiday_late_at_night(self):
+        update = self.run_job(EVENING, None)
+        update.assert_not_called()
+        self.assertIsNone(self.bot.state_get("daily_done"))     # retried later
+        self.run_job(EVENING.replace(hour=22, minute=5), None)
         self.assertEqual(self.bot.state_get("daily_done"), EVENING.date().isoformat())
+        self.assertIn("holiday", self.sent[-1])
+
+
+class NseFiles(unittest.TestCase):
+    def test_reads_official_closes_and_the_nifty(self):
+        import io, zipfile
+        from screener import prices
+        bhav = ("TradDt,TckrSymb,SctySrs,OpnPric,HghPric,LwPric,ClsPric,TtlTradgVol\n"
+                "2026-11-05,SBIN,EQ,990,1009.6,987.2,1006.4,25273153\n"
+                "2026-11-05,SOMEBOND,GS,100,100,100,100,5\n")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("bhav.csv", bhav)
+        index = ("Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,Closing Index Value\n"
+                 "Nifty 50,05-11-2026,24378.05,24579.9,24296.3,24536.6\n")
+        replies = iter([mock.Mock(status_code=200, ok=True, content=buf.getvalue(), raise_for_status=lambda: None),
+                        mock.Mock(status_code=200, ok=True, content=index.encode())])
+        with mock.patch.object(prices.requests, "get", lambda *a, **k: next(replies)):
+            df = prices.nse_day(datetime(2026, 11, 5).date())
+        prices._nse_days.clear()
+        self.assertEqual(sorted(df["symbol"]), ["SBIN", "^NSEI"])               # bonds dropped
+        self.assertEqual(df.set_index("symbol").loc["^NSEI", "close"], 24536.6)
+        self.assertEqual(df.set_index("symbol").loc["SBIN", "close"], 1006.4)
+        self.assertEqual(set(df["date"]), {"2026-11-05"})
+
+
+class PriceTables(BotCase):
+    def test_fast_tables_match_the_old_four_pivots(self):
+        import pandas as pd
+        from screener import strategies
+        rows = [(s, d, 1.0 + i, 2.0 + i, 0.5 + i, 1.5 + i, 100.0 * i)
+                for i, (s, d) in enumerate([("A", "2026-11-03"), ("A", "2026-11-04"), ("B", "2026-11-04")])]
+        self.con.executemany("INSERT INTO prices VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+        new = strategies.load_wide(self.con, 1)
+        df = pd.read_sql_query("SELECT symbol, date, high, low, close, volume FROM prices", self.con)
+        for c in ("close", "high", "low", "volume"):
+            old = df.pivot(index="date", columns="symbol", values=c).sort_index()
+            old.index = pd.to_datetime(old.index)
+            pd.testing.assert_frame_equal(new[c].astype("float64"), old, check_names=False)
 
 
 if __name__ == "__main__":

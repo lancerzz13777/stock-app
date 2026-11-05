@@ -3,7 +3,7 @@
 - During market hours (Mon-Fri 9:15-15:30 IST): scan for DAY-TRADE breakouts every 5 min,
   log them as paper trades, remind you to square off at 3:10, check for dips every 15 min
 - All the time: read news every 30 min, warn about bad news on stocks you're watching
-- Every weekday at 16:15 IST: update data, send today's budget plan, update paper trades
+- Every weekday from 18:30 IST (retried until NSE publishes closes): update data, send today's budget plan, update paper trades
 - Answer your Telegram commands: /plan 2000, /top, /dips, /paper, /news, /help
 
 Your taps are answered right away: long jobs (evening update, scans, Strategy Lab) run on
@@ -34,27 +34,6 @@ STATE = """
 CREATE TABLE IF NOT EXISTS bot_state (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS alerts_sent (key TEXT PRIMARY KEY, sent_at TEXT);
 """
-
-HELP = (
-    "📱 Tap the buttons below, or type:\n\n"
-    "PAPER WALLET (fake money, real prices)\n"
-    "/buy SBIN 1500 - day trade (sell by 3:15)\n"
-    "/buy SBIN 1500 hold - strategy position (monthly review)\n"
-    "/buy SBIN 1500 stop 960 target 1000 - your own levels\n"
-    "/exit 1 · /exit SBIN · /exit all\n"
-    "/wallet - money, open trades, Exit buttons\n\n"
-    "STRATEGY (tested on 10 years of NSE)\n"
-    "/picks - what the winning strategy selects today\n"
-    "/lab - re-run the Strategy Lab (~1 min)\n"
-    "/check TCS - Graham/Buffett/Lynch/QGLP/CAN SLIM checklists\n\n"
-    "MARKET\n"
-    "/day - day-trade breakout scan (market hours)\n"
-    "/dips - sudden falls in quality stocks\n"
-    "/news - negative news on stocks\n"
-    "/paper - paper trading results\n"
-    "/help - this message"
-)
-
 
 LOG_FILE = ROOT / "data" / "bot.log"
 
@@ -98,6 +77,8 @@ class Bot:
         wallet.ensure(con, cfg)
         intraday.ensure(con)
         self.last_news_scan = None
+        self.last_daily_try = None
+        self._picks = (None, None)  # (cache key, picks)
         self._trading_day: dict[str, bool] = {}
 
     @property
@@ -343,7 +324,11 @@ class Bot:
         if not c:
             return None
         c = json.loads(c)
-        cp = strategies.current_picks(self.con, self.cfg, c["key"], c["market_filter"])
+        latest = self.con.execute("SELECT MAX(date) FROM prices WHERE symbol=?", (prices.NIFTY_SYMBOL,)).fetchone()[0]
+        key = (c["key"], c["market_filter"], latest)  # picks only change when new prices arrive
+        if self._picks[0] != key:
+            self._picks = (key, strategies.current_picks(self.con, self.cfg, c["key"], c["market_filter"]))
+        cp = self._picks[1]
         keep_zone = {p["symbol"] for p in cp["picks"]} if cp["invest"] else set()
         holds = [p for p in wallet.open_positions(self.con) if p.get("mode") == "hold" and not p.get("stop")]
         budget = self.cfg["alerts"]["default_budget"]
@@ -536,12 +521,21 @@ class Bot:
                          f"<i>{tgfmt.esc(item['link'])}</i>", rich=True)
 
     def daily_job(self):
+        """Evening update + report. Marks the day done only once today's prices are in; until then the
+        callers retry every 30 minutes (NSE publishes its official closes around 6 PM)."""
+        now = datetime.now(IST)
+        today = now.date().isoformat()
+        if prices.nse_day(now.date()) is None:
+            if now.time() >= dtime(22, 0):  # still nothing this late: no trading today
+                self.state_set("daily_done", today)
+                self.say("🌙 No trading today (no closing prices from NSE) — market holiday.")
+            return
         pipeline.update_all(self.cfg, self.con)
-        today = datetime.now(IST).date().isoformat()
         latest = self.con.execute("SELECT MAX(date) FROM prices WHERE symbol=?", (prices.NIFTY_SYMBOL,)).fetchone()[0]
         if latest != today:
-            self.say(f"🌙 No new prices today (last: {latest}) — market holiday?")
+            log(f"Evening update: Nifty close for {today} not in yet (last {latest}) - retrying later")
             return
+        self.state_set("daily_done", today)
         events = paper.update(self.con, self.cfg) + intraday.paper_resolve(self.con, self.cfg)
         import pandas as pd
         d = pd.Timestamp(today)
@@ -703,9 +697,9 @@ class Bot:
         if self._tick_due("news_scan", a["news_scan_minutes"], now):
             self._job("news_scan", self.news_scan)
         report_time = dtime(*map(int, a["daily_report_time"].split(":")))
-        if now.weekday() < 5 and now.time() >= report_time and self.state_get("daily_done") != now.date().isoformat():
-            if self._job("daily_job", self.daily_job):  # failed? the next run tries again
-                self.state_set("daily_done", now.date().isoformat())
+        if (now.weekday() < 5 and now.time() >= report_time and self.state_get("daily_done") != now.date().isoformat()
+                and self._tick_due("daily_try", 30, now)):
+            self._job("daily_job", self.daily_job)
         elif (not market_is_open(now) and self.state_get("catch_up_done") != now.date().isoformat()
               and self._needs_catch_up(now)):
             if self._job("catch_up", self.catch_up):
@@ -781,9 +775,10 @@ class Bot:
                 if self._due(self.last_news_scan, a["news_scan_minutes"], now):
                     if self._submit(self.jobs, "news_scan", self.news_scan):
                         self.last_news_scan = now
-                if now.weekday() < 5 and now.time() >= report_time and self.state_get("daily_done") != now.date().isoformat():
+                if (now.weekday() < 5 and now.time() >= report_time and self.state_get("daily_done") != now.date().isoformat()
+                        and self._due(self.last_daily_try, 30, now)):
                     if self._submit(self.jobs, "daily_job", self.daily_job):
-                        self.state_set("daily_done", now.date().isoformat())
+                        self.last_daily_try = now
                         log("Evening job started in the background (data update + report)")
             except KeyboardInterrupt:
                 log("Bot stopped.")

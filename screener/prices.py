@@ -4,16 +4,75 @@ First run downloads the full history; later runs only fetch the last few days.
 Prices are split/dividend adjusted. If a stock had a split since our last download,
 its old stored prices no longer line up, so we detect that and re-download it fully.
 """
+import io
 import time
+import zipfile
 from datetime import date, timedelta
 
 import pandas as pd
+import requests
 import yfinance as yf
 
 from . import ui
 
 
 NIFTY_SYMBOL = "^NSEI"
+# NSE's free official end-of-day files (published around 6 PM). Yahoo is often a day late for NSE closes.
+BHAVCOPY_URL = "https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_{:%Y%m%d}_F_0000.csv.zip"
+INDEX_URL = "https://nsearchives.nseindia.com/content/indices/ind_close_all_{:%d%m%Y}.csv"
+_nse_days: dict[date, pd.DataFrame] = {}
+
+
+def nse_day(day: date) -> pd.DataFrame | None:
+    """Official closes for one trading day: every equity plus the Nifty 50 (as ^NSEI).
+    Columns symbol, date, open, high, low, close, volume. None if NSE hasn't published that day."""
+    if day in _nse_days:
+        return _nse_days[day]
+    from .universe import HEADERS
+    r = requests.get(BHAVCOPY_URL.format(day), headers=HEADERS, timeout=30)
+    if r.status_code == 404:  # holiday, weekend, or not published yet
+        return None
+    r.raise_for_status()
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    b = pd.read_csv(z.open(z.namelist()[0]))
+    b = b[b["SctySrs"].isin(["EQ", "BE", "BZ"])]
+    out = pd.DataFrame({"symbol": b["TckrSymb"], "open": b["OpnPric"], "high": b["HghPric"], "low": b["LwPric"],
+                        "close": b["ClsPric"], "volume": b["TtlTradgVol"]})
+    r = requests.get(INDEX_URL.format(day), headers=HEADERS, timeout=30)
+    if r.ok:
+        ix = pd.read_csv(io.BytesIO(r.content))
+        n = ix[ix["Index Name"].str.strip() == "Nifty 50"]
+        if len(n):
+            n = n.iloc[0]
+            out.loc[len(out)] = [NIFTY_SYMBOL, n["Open Index Value"], n["High Index Value"], n["Low Index Value"],
+                                 n["Closing Index Value"], 0.0]
+    out.insert(1, "date", day.isoformat())
+    _nse_days[day] = out
+    return out
+
+
+def fill_from_nse(con, symbols: list[str], days: int = 10) -> int:
+    """Writes NSE's official closes for the last `days` days (they replace Yahoo's for those days).
+    Fixes days Yahoo published late or skipped. Returns how many trading days were found."""
+    want = set(symbols) | {NIFTY_SYMBOL}
+    found = 0
+    for back in range(days, -1, -1):
+        d = date.today() - timedelta(days=back)
+        if d.weekday() >= 5:
+            continue
+        try:
+            df = nse_day(d)
+        except Exception as e:  # NSE down: Yahoo's prices stay
+            ui.warn(f"NSE closes for {d}: {str(e)[:80]}")
+            continue
+        if df is None:
+            continue
+        found += 1
+        rows = df[df["symbol"].isin(want)]
+        con.executemany("INSERT OR REPLACE INTO prices VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        rows.itertuples(index=False, name=None))
+    con.commit()
+    return found
 
 
 def _yahoo(symbol: str) -> str:

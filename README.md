@@ -97,7 +97,7 @@ With the bot running you don't need to update anything by hand:
 
 | What | When |
 |---|---|
-| Stock list, daily prices (last week re-checked), fundamentals (weekly), news | every weekday 4:15 PM |
+| Stock list, daily prices (last week re-checked), fundamentals (weekly), news | every weekday from 6:30 PM (official NSE closes; retried every 30 min until they appear) |
 | Missed update (PC was off) | as soon as the bot starts again |
 | **Strategy Lab re-run.** It re-chooses the best strategy on data up to today (`lab.split_date: auto` = choose on everything up to 4 years ago, check on the last 4 years) | every month-end review, or if >35 days old. You get a message if the winner **changes** |
 | **Day-trade setup re-test** on the last 60 days | weekly. If it lost money, day-trade alerts **pause** (still paper-tested quietly) and come back on when it works again |
@@ -176,7 +176,7 @@ Then menu **13** starts the bot. Leave that window open. During market hours it:
 - scans for **day-trade breakouts every 5 min** → sends BUY/target/stop alerts → logs them as paper trades
 - sends a **3:10 PM square-off reminder**
 - checks quality stocks for **dips every 15 min**, and **news every 30 min** (warns you about bad news on stocks you're watching)
-- at **4:15 PM** sends an evening report: swing plan, how today's paper trades ended, dips
+- from **6:30 PM** sends an evening report: swing plan, how today's paper trades ended, dips
 - answers your messages: `/day`, `/plan 2500`, `/top`, `/dips`, `/paper`, `/news`, `/help` (only from your own chat)
 
 ## Use it from your phone 📱
@@ -263,7 +263,9 @@ Strategy Lab and the weekly re-tests all run there. **You can switch your PC off
   server's wallet, data and `.env`. It remembers the IP and key.
 - **Changed `.env` (e.g. Angel One or Gemini keys)?** Run `deploy\deploy_to_server.bat` again (a full deploy). ⚠️ This
   replaces the server's data with the PC's, so paper trades made since the last deploy are lost. Or edit it on the
-  server: `ssh -i KEY ubuntu@IP`, then `nano stock-app/.env`, then `sudo systemctl restart stockbot`.
+  server: `ssh -i KEY ubuntu@IP`, then `nano stock-app/.env`, then restart the bot (next line).
+- **Restart or update without the admin password:** `ssh USER@IP "cd stock-app && git pull && pkill -f 'main.py run'"`.
+  The service has `Restart=always`, so the bot comes back on the new code within 30 seconds.
 - **Only ONE place runs the bot.** After deploying, menu 13 on the PC refuses to start it, because two copies would
   fight over Telegram. Everything else in the PC menu still works, but on the PC's own copy of the data. Your live
   wallet is on the server and in Telegram.
