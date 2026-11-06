@@ -176,7 +176,8 @@ intraday:
   max_stop_pct: 1.0            # stop never further than 1% from entry
   min_stop_pct: 0.3            # ...or closer than 0.3% (too tight = random noise stops you out)
   reward_risk: 2.0             # target = 2x the risk
-  max_trades_per_day: 2
+  max_trades_per_day: 2        # what the backtest uses: the first 2 breakouts a day
+  max_alerts_per_day: 5        # tips sent to you; tips 3-5 are labelled "extra, not tested"
   allow_short: false           # short selling (profit when price falls). Off for beginners.
   backtest_days: 60            # Yahoo gives ~60 days of free 5-minute history
   scan_minutes: 5              # day-trade scans run right after each 5-minute candle closes

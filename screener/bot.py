@@ -460,12 +460,17 @@ class Bot:
         day = datetime.now(IST).date().isoformat()
         res = intraday.live_scan(self.con, self.cfg, self.cfg["intraday"]["budget"])
         alerts_on = self.dt_working()
+        ic = self.cfg["intraday"]
         for s in res["signals"]:
-            if intraday.trades_today(self.con, day) >= self.cfg["intraday"]["max_trades_per_day"]:
+            n = intraday.trades_today(self.con, day)
+            if n >= ic.get("max_alerts_per_day", ic["max_trades_per_day"]):
                 break
+            extra = "" if n < ic["max_trades_per_day"] else (
+                f"\n⚠️ <i>Extra tip #{n + 1}: the tested setup takes only the first {ic['max_trades_per_day']} "
+                "a day, so this one is NOT tested.</i>")
             # Paused? The signal is still paper-tested quietly, so we know when the setup works again
             if self.first_time(f"dt:{day}:{s['symbol']}") and intraday.paper_log(self.con, s, day) and alerts_on:
-                self.say(tgfmt.day_signal(s, self._dt_age(res)), rich=True,
+                self.say(tgfmt.day_signal(s, self._dt_age(res)) + extra, rich=True,
                          buttons=[[(f"🛒 Buy {s['symbol']} now", f"/buy {s['symbol']} {self.cfg['intraday']['budget']:g}")]])
 
     def square_off_reminder(self):

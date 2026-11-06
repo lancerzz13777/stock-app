@@ -124,6 +124,19 @@ class RunOnce(BotCase):
         done.assert_called_once()
 
 
+class DayTradeTips(BotCase):
+    def test_five_tips_a_day_and_tips_three_to_five_are_marked_untested(self):
+        signals = [{"symbol": f"S{i}", "direction": "LONG", "signal_time": "09:30", "entry": 100.0, "qty": 10,
+                    "stop": 99.0, "target": 102.0, "profit": 20.0, "loss": 10.0} for i in range(6)]
+        res = {"signals": signals, "delay_min": 1.0, "data_time": OPEN}
+        with mock.patch.object(botmod, "datetime", mock.Mock(wraps=datetime, now=lambda tz=None: OPEN)), \
+                mock.patch.object(botmod.intraday, "live_scan", lambda *a: res):
+            self.bot.dt_scan()
+        tips = [t for t in self.sent if "DAY TRADE" in t]
+        self.assertEqual(len(tips), 5)
+        self.assertEqual(["NOT tested" in t for t in tips], [False, False, True, True, True])
+
+
 class EveningJob(BotCase):
     def run_job(self, at, nse):
         self.now = at
