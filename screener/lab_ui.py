@@ -246,13 +246,15 @@ def quant_report(cfg, con):
     if q["weights_fallback"]:
         ui.warn("No alpha was significant in the choosing years, so the weights are plain ICs: treat the mix as weak.")
 
-    p, b = q["port"], q["bench"]
-    rows = [[name, _pct(x["train"].get("cagr", float("nan"))), _pct(x["test"].get("cagr", float("nan"))),
-             Text(f"{x['test'].get('max_dd', float('nan')):.0f}%", style=ui.RED), f"{x['test'].get('sharpe', float('nan')):.2f}"]
-            for name, x in ((f"Top {cfg['lab']['positions']} by combined score", p), ("Nifty 50", b))]
-    console.print(ui.table([("Portfolio (after all charges)", "left"), ("Choosing yrs /yr", "right"),
+    def row(name, x, star=False):
+        return [Text(("★ " if star else "  ") + name, style="bold" if star else ""), _pct(x.get("train_cagr", float("nan"))),
+                _pct(x.get("test_cagr", float("nan"))), Text(f"{x.get('test_max_dd', float('nan')):.0f}%", style=ui.RED),
+                f"{x.get('test_sharpe', float('nan')):.2f}"]
+    b = {f"{part}_{k}": v for part in ("train", "test") for k, v in q["bench"][part].items()}
+    rows = [row(name, r, name == q["best"]) for name, r in q["variants"].iterrows()] + [row("Nifty 50 (benchmark)", b)]
+    console.print(ui.table([("Portfolio from the combined score (after all charges)", "left"), ("Choosing yrs /yr", "right"),
                             ("Unseen yrs /yr", "right"), ("Worst fall (unseen)", "right"), ("Sharpe (unseen)", "right")],
-                           rows))
+                           rows, caption="★ = best Sharpe in the choosing years; that one is used for picks"))
     dsr = q["dsr"]
     verdict = ("probably a real edge" if dsr >= 0.95 else "could easily be luck" if dsr == dsr else "not enough months")
     console.print(f"Luck check (Deflated Sharpe, {q['trials']} ideas tried): "

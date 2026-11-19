@@ -26,12 +26,17 @@
 - A top-10 long-only portfolio built from it did NOT beat the Nifty after charges (+5.1%/yr vs +5.8%/yr). The Deflated Sharpe says the result could be luck (19%).
 - Conclusion: the signal is real, but how it is turned into trades loses it. That is Phase 2.
 
+**Phase 2 result (19 Nov 2026):**
+- Holding the top 25 instead of the top 10 turned the signal into returns: +8.9%/yr on unseen years vs Nifty +5.8%/yr, worst fall 16% vs 24%.
+- The variant with sizing by calmness and max 5 per sector did slightly better on unseen years (+9.4%). It isn't used, because it wasn't the best on the choosing years.
+- The luck check rose to 39% across the 13 ideas tried. Better, but still not proof. Live paper trading (Phase 5) is the real test.
+
 ## Roadmap
 
 | Phase | What | Status |
 |---|---|---|
 | 1 | Research engine: 9 alphas, IC/t-stat, walk-forward mix, charges, Deflated Sharpe (`python main.py quant`, menu Q) | done |
-| 2 | Portfolio construction: 20-30 names, inverse-volatility weights, sector caps, trade only when the gain beats the charges; Nifty-hedged view | next |
+| 2 | Portfolio construction: 4 ways to build the portfolio, the best one chosen on the choosing years only | done |
 | 3 | India-specific free data alphas: delivery % (NSE full bhavcopy), FII/DII flows, bulk/block deals, results dates | |
 | 4 | Survivorship-free history: rebuild the universe from old NSE bhavcopies, including delisted stocks | |
 | 5 | Live paper fund: the bot rebalances a paper portfolio monthly; live vs backtest IC tracked to catch alpha decay | |

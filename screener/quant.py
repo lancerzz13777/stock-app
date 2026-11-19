@@ -74,27 +74,37 @@ def centred_rank(score: pd.DataFrame, mask: pd.DataFrame) -> pd.DataFrame:
     return (score.where(mask).rank(axis=1, pct=True) - 0.5).fillna(0).where(mask)
 
 
-def portfolio(score: pd.DataFrame, fwd: pd.DataFrame, mask: pd.DataFrame, cfg: dict, n: int) -> pd.Series:
-    """Holds the top n by score, equal money each, re-picked every HORIZON days; keeps a stock while it is in
-    the top n x hold_buffer (fewer trades). Returns the rupee value at the END of each holding period."""
+def portfolio(score: pd.DataFrame, fwd: pd.DataFrame, mask: pd.DataFrame, cfg: dict, n: int,
+              vol: pd.DataFrame | None = None, sectors: dict | None = None, per_sector: int | None = None) -> pd.Series:
+    """Holds the top n by score, re-picked every HORIZON days; keeps a stock while it is in the top
+    n x hold_buffer (fewer trades). vol: size each stock by 1/volatility (calmer = bigger) instead of equal money.
+    per_sector: at most this many stocks from one sector. Returns the rupee value at the END of each period."""
     lab, ch = cfg["lab"], cfg["charges"]
-    eq, held, out = float(lab["capital"]), [], {}
+    eq, held, out = float(lab["capital"]), {}, {}
     dates = score.index
     for i, d in enumerate(dates[:-1]):
         s = score.loc[d].where(mask.loc[d]).dropna().sort_values(ascending=False)
         if len(s) < MIN_STOCKS or fwd.loc[d].notna().sum() < MIN_STOCKS:  # last, unfinished month: no result yet
             continue
         zone = set(s.index[: n * lab["hold_buffer"]])
-        keep = [x for x in held if x in zone]
-        new = keep + [x for x in s.index if x not in keep][: n - len(keep)]
-        # shortcut: charges priced on equal slices (eq / n); fine for a research comparison, not for a tax report
-        per = eq / n
-        cost = (sum(side_charges(per, "sell", ch).total for x in held if x not in new)
-                + sum(side_charges(per, "buy", ch).total for x in new if x not in held))
-        r = fwd.loc[d, new].fillna(0).mean()  # shortcut: a stock that stops trading counts as flat
+        new, count = [], {}
+        for x in [x for x in held if x in zone] + list(s.index):
+            sec = (sectors or {}).get(x) or x  # unknown sector: no cap
+            if x in new or (per_sector and count.get(sec, 0) >= per_sector):
+                continue
+            new.append(x)
+            count[sec] = count.get(sec, 0) + 1
+            if len(new) == n:
+                break
+        w = pd.Series(1.0, index=new) if vol is None else (1 / vol.loc[d, new]).fillna(0)
+        w = w / w.sum() if w.sum() > 0 else pd.Series(1 / len(new), index=new)
+        # shortcut: charges only on names entering/leaving, priced on their slice; re-weighting kept names is free
+        cost = (sum(side_charges(eq * v, "sell", ch).total for x, v in held.items() if x not in w.index)
+                + sum(side_charges(eq * v, "buy", ch).total for x, v in w.items() if x not in held))
+        r = (fwd.loc[d, new].fillna(0) * w).sum()  # shortcut: a stock that stops trading counts as flat
         eq = (eq - cost) * (1 + r)
         out[dates[i + 1]] = eq
-        held = new
+        held = w.to_dict()
     return pd.Series(out, dtype=float)
 
 
@@ -136,7 +146,10 @@ def research(con, cfg: dict) -> dict:
         dates = dates.append(c.index[-1:])
     mask, fwd = mask.loc[dates], fwd.loc[dates]
     al = {k: v.loc[dates] for k, v in alphas(f, volume).items()}
+    vol = f["vol"].loc[dates]
     del f, w, volume
+    from .fundamentals import load_fundamentals
+    sectors = load_fundamentals(con)["sector"].dropna().to_dict()
 
     train, test = dates <= split, dates > split
     rows, ranks = [], {}
@@ -164,13 +177,25 @@ def research(con, cfg: dict) -> dict:
     def ex_returns(eq):
         return (pd.concat([pd.Series({dates[0]: float(lab["capital"])}), eq]).pct_change().dropna() - rf / 12)
     trials = {k: portfolio(a, fwd, mask, cfg, n) for k, a in al.items()}
-    eq = portfolio(combo, fwd, mask, cfg, n)
-    trial_sr = [(lambda r: r.mean() / r.std())(ex_returns(e)) for e in trials.values()]
-    nifty_eq = nifty.reindex(c.index).ffill().loc[eq.index]
+    # Phase 2: ways to turn the combined score into a portfolio; the best on the CHOOSING years is used
+    variants = {
+        f"Top {n}, equal money": portfolio(combo, fwd, mask, cfg, n),
+        "Top 25, equal money": portfolio(combo, fwd, mask, cfg, 25),
+        "Top 25, calmer stocks bigger": portfolio(combo, fwd, mask, cfg, 25, vol=vol),
+        "Top 25, calmer bigger, max 5 per sector": portfolio(combo, fwd, mask, cfg, 25, vol=vol, sectors=sectors, per_sector=5),
+    }
+    trial_sr = [(lambda r: r.mean() / r.std())(ex_returns(e)) for e in [*trials.values(), *variants.values()]]
 
     def period(series, part):
         s = series[series.index <= split] if part == "train" else series[series.index >= series.index[series.index <= split][-1]]
         return strategies.metrics(s, rf)
+
+    vtable = pd.DataFrame({name: {**{f"train_{k}": v for k, v in period(e, "train").items()},
+                                  **{f"test_{k}": v for k, v in period(e, "test").items()}}
+                           for name, e in variants.items()}).T
+    best = vtable["train_sharpe"].idxmax()
+    eq = variants[best]
+    nifty_eq = nifty.reindex(c.index).ffill().loc[eq.index]
 
     r_test = ex_returns(eq)
     r_test = r_test[r_test.index > split]
@@ -179,9 +204,10 @@ def research(con, cfg: dict) -> dict:
         "table": table, "weights_fallback": bool((table["train_t"].abs() < 2).all()),
         "combo_train": ic_stats(combo_ic[combo_ic.index <= split]), "combo_test": ic_stats(combo_ic[combo_ic.index > split]),
         "equity": eq, "nifty": nifty_eq,
+        "variants": vtable, "best": best,
         "port": {"train": period(eq, "train"), "test": period(eq, "test")},
         "bench": {"train": period(nifty_eq, "train"), "test": period(nifty_eq, "test")},
-        "dsr": deflated_sharpe(r_test, trial_sr), "trials": len(trial_sr) + 1,
-        "picks": list(latest.index[:n]), "as_of": str(c.index[-1].date()), "split": str(split.date()),
+        "dsr": deflated_sharpe(r_test, trial_sr), "trials": len(trial_sr),
+        "picks": list(latest.index[:int(best.split()[1].rstrip(","))]), "as_of": str(c.index[-1].date()), "split": str(split.date()),
         "period": (str(dates[0].date()), str(dates[-1].date())), "n_test_months": int(test.sum()),
     }
