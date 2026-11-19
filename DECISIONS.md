@@ -31,6 +31,13 @@
 - The variant with sizing by calmness and max 5 per sector did slightly better on unseen years (+9.4%). It isn't used, because it wasn't the best on the choosing years.
 - The luck check rose to 39% across the 13 ideas tried. Better, but still not proof. Live paper trading (Phase 5) is the real test.
 
+**Trading agents (19 Nov 2026):**
+- Four paper day-traders, ₹10,000 a day each, no leverage, stop on every trade, out by 3:15.
+- They are program agents, not Claude agents: free, and they run all day without usage limits.
+- They run on the PC through `agents.bat`, and the process keeps the PC awake while it runs.
+- 80-day backtest after charges: Breakout +₹903, Trend Rider −₹1,471, Bounce −₹1,530. Quant can't be backtested honestly, because its picks are today's.
+- The losing agents keep running on paper as the live check. No retuning on the same days.
+
 ## Roadmap
 
 | Phase | What | Status |
