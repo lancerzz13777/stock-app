@@ -63,6 +63,16 @@ Graham (*The Intelligent Investor*), Buffett (*The Warren Buffett Way*), Lynch (
 (*The Joys of Compounding*), O'Neil's CAN SLIM, plus Greenblatt's Magic Formula rank (*The Little Book That Beats the Market*).
 **These can't be backtested with free data** (there's no history of P/E, ROE etc.), so they're shown as a quality check, not as proof.
 
+## Quant research (menu → Q, or `python main.py quant`)
+
+Tests 9 classic alphas (momentum, 52-week high, low volatility, reversal, volume, illiquidity...) the way quant funds do:
+- **IC:** how well each one ranks next month's returns, with a t-stat (above 2 = probably real).
+- **Combined score:** the alphas are mixed with weights chosen only on older years, then judged on unseen years.
+- **Portfolio:** a top-10 portfolio from the combined score, after every charge, against the Nifty.
+- **Luck check:** a Deflated Sharpe that allows for the number of ideas tried.
+
+Takes about 2 minutes. Research only: it never trades. Roadmap and results so far are in `DECISIONS.md`.
+
 ## Live (real-time) prices with Angel One (menu → L)
 
 Yahoo is free but can be **several minutes late**, which is too slow for day trading. The proper, legal fix is a broker's

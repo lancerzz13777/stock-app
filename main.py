@@ -85,6 +85,7 @@ MENU = [
         ("Y", "Strategy Lab", "test Momentum, Minervini, O'Neil, Darvas, Low-vol, Dual momentum"),
         ("S", "Strategy picks for my budget", "what the winning strategy selects today"),
         ("G", "Check a stock", "Graham, Buffett, Lynch, QGLP, CAN SLIM checklists"),
+        ("Q", "Quant research", "9 alphas: which really predict returns, the mix, and a luck check"),
     ]),
     ("PRACTICE  (paper wallet: fake money, real live prices)", [
         ("T", "Trading desk", "buy → money locked → live P&L → exit alerts → exit"),
@@ -136,7 +137,7 @@ def menu_panel() -> Group:
 def menu(cfg, con):
     actions = {
         "t": lambda: desk.run(cfg, con), "l": live_setup, "a": lambda: advisor_setup(cfg, con),
-        "y": lambda: lab_ui.lab(cfg, con), "s": lambda: lab_ui.picks(cfg, con), "g": lambda: lab_ui.check_stock(cfg, con),
+        "y": lambda: lab_ui.lab(cfg, con), "q": lambda: lab_ui.quant_report(cfg, con), "s": lambda: lab_ui.picks(cfg, con), "g": lambda: lab_ui.check_stock(cfg, con),
         "1": lambda: dt_watch(cfg, con), "2": lambda: dt_scan(cfg, con), "3": lambda: dt_backtest(cfg, con),
         "4": lambda: dt_paper(cfg, con), "5": lambda: swing_daily(cfg, con), "6": lambda: swing_plan(cfg, con),
         "7": lambda: swing_scan(cfg, con), "8": lambda: swing_backtest(cfg, con), "9": lambda: swing_paper(cfg, con),
@@ -615,7 +616,7 @@ def main():
             return menu(cfg, con)
         ap = argparse.ArgumentParser(description="Personal NSE stock screener")
         sub = ap.add_subparsers(dest="cmd", required=True)
-        for name in ("lab", "picks", "check", "live-setup", "desk", "dt-watch", "dt-scan", "dt-backtest", "dt-paper", "scan", "backtest", "paper", "dips", "news",
+        for name in ("lab", "quant", "picks", "check", "live-setup", "desk", "dt-watch", "dt-scan", "dt-backtest", "dt-paper", "scan", "backtest", "paper", "dips", "news",
                      "run", "tick", "telegram-test", "menu"):
             sub.add_parser(name)
         for name in ("update", "daily", "plan"):
@@ -624,7 +625,7 @@ def main():
             p.add_argument("--budget", type=float)
         args = ap.parse_args()
         {
-            "lab": lambda: lab_ui.lab(cfg, con), "picks": lambda: lab_ui.picks(cfg, con),
+            "lab": lambda: lab_ui.lab(cfg, con), "quant": lambda: lab_ui.quant_report(cfg, con), "picks": lambda: lab_ui.picks(cfg, con),
             "check": lambda: lab_ui.check_stock(cfg, con), "live-setup": live_setup, "desk": lambda: desk.run(cfg, con), "dt-watch": lambda: dt_watch(cfg, con), "dt-scan": lambda: dt_scan(cfg, con),
             "dt-backtest": lambda: dt_backtest(cfg, con), "dt-paper": lambda: dt_paper(cfg, con),
             "scan": lambda: swing_scan(cfg, con), "backtest": lambda: swing_backtest(cfg, con),

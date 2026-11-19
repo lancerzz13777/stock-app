@@ -215,3 +215,50 @@ def check_stock(cfg, con):
     if sym in mf.index:
         ui.info(f"Greenblatt Magic Formula rank: {int(mf[sym])} of {len(mf)} (lower = cheaper + better business)")
     ui.info("? = not enough free data to judge. These checklists use today's numbers and were NOT backtested.")
+
+
+# ======================================================================== Quant research
+def quant_report(cfg, con):
+    from . import pipeline, quant
+    ui.title("Quant Research", "alphas -> IC -> combined score -> portfolio -> luck check")
+    with console.status("[cyan]Scoring ~2,300 stocks on 9 alphas over 10 years (a minute or two)..."):
+        q = quant.research(con, cfg)
+    t, split = q["table"], q["split"]
+    ui.info(f"Monthly tests {q['period'][0]} to {q['period'][1]}. Weights chosen on data up to {split}; "
+            f"judged on the {q['n_test_months']} unseen months after it.")
+
+    def ic(x, tstat):
+        style = ui.GREEN if tstat >= 2 else ui.RED if tstat <= -2 else ui.DIM
+        return Text(f"{x:+.3f} (t {tstat:+.1f})", style=style)
+
+    rows = [[Text(k, style="bold"), Text(r["idea"], style=ui.DIM), ic(r["train_ic"], r["train_t"]),
+             ic(r["test_ic"], r["test_t"]), _pct(r["test_top_excess"]), f"{r['turnover']:.0f}%",
+             f"{r['weight']:+.2f}" if r["weight"] else Text("0", style=ui.DIM)]
+            for k, r in t.sort_values("test_t", ascending=False).iterrows()]
+    ct, cs = q["combo_train"], q["combo_test"]
+    rows.append([Text("COMBINED", style="bold cyan"), Text("weighted mix of the alphas above", style=ui.DIM),
+                 ic(ct["ic"], ct["t"]), ic(cs["ic"], cs["t"]), "", "", ""])
+    console.print(ui.table(
+        [("Alpha", "left"), ("Idea", "left"), ("IC choosing years", "right"), ("IC unseen years", "right"),
+         ("Top 20% vs all /yr", "right"), ("Monthly churn", "right"), ("Weight", "right")], rows,
+        title_="Does each score predict next month's returns?",
+        caption="IC = rank correlation with next month's return. Green = t >= 2 (probably real), red = reliably wrong way."))
+    if q["weights_fallback"]:
+        ui.warn("No alpha was significant in the choosing years, so the weights are plain ICs: treat the mix as weak.")
+
+    p, b = q["port"], q["bench"]
+    rows = [[name, _pct(x["train"].get("cagr", float("nan"))), _pct(x["test"].get("cagr", float("nan"))),
+             Text(f"{x['test'].get('max_dd', float('nan')):.0f}%", style=ui.RED), f"{x['test'].get('sharpe', float('nan')):.2f}"]
+            for name, x in ((f"Top {cfg['lab']['positions']} by combined score", p), ("Nifty 50", b))]
+    console.print(ui.table([("Portfolio (after all charges)", "left"), ("Choosing yrs /yr", "right"),
+                            ("Unseen yrs /yr", "right"), ("Worst fall (unseen)", "right"), ("Sharpe (unseen)", "right")],
+                           rows))
+    dsr = q["dsr"]
+    verdict = ("probably a real edge" if dsr >= 0.95 else "could easily be luck" if dsr == dsr else "not enough months")
+    console.print(f"Luck check (Deflated Sharpe, {q['trials']} ideas tried): "
+                  f"[bold]{dsr * 100:.0f}%[/] chance the unseen-years edge is real -> {verdict}." if dsr == dsr
+                  else f"Luck check: {verdict}.")
+    console.print(f"\nToday's top {len(q['picks'])} by combined score ({q['as_of']}): [bold]{', '.join(q['picks'])}[/]")
+    ui.info("Research only, paper only. Stocks listed today only (survivorship bias makes past results look better).")
+    path = pipeline.save_csv(t, "quant_alphas")
+    ui.info(f"Saved: {path}")
