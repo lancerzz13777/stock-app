@@ -264,3 +264,18 @@ def quant_report(cfg, con):
     ui.info("Research only, paper only. Stocks listed today only (survivorship bias makes past results look better).")
     path = pipeline.save_csv(t, "quant_alphas")
     ui.info(f"Saved: {path}")
+
+
+# ======================================================================== Trading agents
+def agents_backtest(cfg, con):
+    from . import agents
+    ui.title("Trading agents: backtest", "Rs 10,000 a day each, paper, after intraday charges")
+    lb = agents.backtest(con, cfg)
+    rows = [[Text(r["agent"], style="bold"), Text(agents.BY_KEY[r["key"]].idea, style=ui.DIM), ui.money(r["pnl"]),
+             str(r["trades"]), f"{r['win_rate']:.0f}%" if r["trades"] else "-",
+             f"{r['green_days']}/{r['days']}", ui.money(r["worst_day"]) if r["days"] else "-"]
+            for _, r in lb.iterrows() if r["key"] != "quant"]
+    console.print(ui.table([("Agent", "left"), ("Strategy", "left"), ("Total P&L", "right"), ("Trades", "right"),
+                            ("Won", "right"), ("Green days", "right"), ("Worst day", "right")], rows,
+                           caption="Quant Bot is skipped: its picks are today's, so testing it on the past would cheat."))
+    ui.info("Past candles from Yahoo; fills at the candle close plus 0.05% slippage. Live results can be worse.")

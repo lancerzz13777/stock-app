@@ -73,6 +73,19 @@ Tests 9 classic alphas (momentum, 52-week high, low volatility, reversal, volume
 
 Takes about 2 minutes. Research only: it never trades. Roadmap and results so far are in `DECISIONS.md`.
 
+## Trading agents (menu → A1 backtest, A2 run; or double-click `agents.bat`)
+
+Four robot day-traders, each with its own **paper** account of ₹10,000 a day. They never use more than that and there's no leverage. Each trade has a stop-loss, and everything closes by 3:15 PM:
+
+| Agent | Strategy | Backed by |
+|---|---|---|
+| Breakout Bot | break above the 9:15–9:30 range on strong volume | the app's 60-day day-trade backtest |
+| Bounce Bot | stock down 2%+ and under VWAP, buys a strong green candle, target back to VWAP | the agent backtest only |
+| Trend Rider | stock up 1.5–6% at new day highs, trailing stop 1% | the agent backtest only |
+| Quant Bot | the quant engine's top picks above VWAP at 9:30, stop 1.5% | quant score tested monthly, not intraday |
+
+Every trade and the day's leaderboard go to Telegram. The agents only send messages; they never read your chat, so they can run on the PC while the bot runs on the laptop. Keep the PC awake (no sleep) from 9:15 to 3:35.
+
 ## Live (real-time) prices with Angel One (menu → L)
 
 Yahoo is free but can be **several minutes late**, which is too slow for day trading. The proper, legal fix is a broker's

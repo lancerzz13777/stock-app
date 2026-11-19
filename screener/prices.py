@@ -53,7 +53,7 @@ def nse_day(day: date) -> pd.DataFrame | None:
     return out
 
 
-def fill_from_nse(con, symbols: list[str], days: int = 10) -> tuple[int, set[str]]:
+def fill_from_nse(con, symbols: list[str], days: int | None = None) -> tuple[int, set[str]]:
     """Writes NSE's official closes for the last `days` days (they replace Yahoo's for those days).
     Returns (trading days found, stocks with a split, bonus or big dividend: NSE's "previous close" no
     longer equals the close in NSE's file for the trading day before - their history must be downloaded again)."""
@@ -61,10 +61,11 @@ def fill_from_nse(con, symbols: list[str], days: int = 10) -> tuple[int, set[str
     want = set(symbols) | {NIFTY_SYMBOL}
     found, adjusted, before = 0, set(), None
     today = datetime.now(IST).date()  # the server's clock may be UTC
+    if days is None:  # back to the last stored Nifty day (at least 10), so a PC left off for weeks has no gap
+        last = con.execute("SELECT MAX(date) FROM prices WHERE symbol=?", (NIFTY_SYMBOL,)).fetchone()[0]
+        days = max(10, min(400, (today - date.fromisoformat(last)).days + 1)) if last else 10
     for back in range(days, -1, -1):
-        d = today - timedelta(days=back)
-        if d.weekday() >= 5:
-            continue
+        d = today - timedelta(days=back)  # weekends too: Diwali's Muhurat session trades on a weekend
         try:
             df = nse_day(d)
         except Exception as e:  # NSE down: Yahoo's prices stay
