@@ -178,6 +178,8 @@ def research(con, cfg: dict) -> dict:
         return (pd.concat([pd.Series({dates[0]: float(lab["capital"])}), eq]).pct_change().dropna() - rf / 12)
     trials = {k: portfolio(a, fwd, mask, cfg, n) for k, a in al.items()}
     # Phase 2: ways to turn the combined score into a portfolio; the best on the CHOOSING years is used
+    sizes = {f"Top {n}, equal money": n, "Top 25, equal money": 25, "Top 25, calmer stocks bigger": 25,
+             "Top 25, calmer bigger, max 5 per sector": 25}
     variants = {
         f"Top {n}, equal money": portfolio(combo, fwd, mask, cfg, n),
         "Top 25, equal money": portfolio(combo, fwd, mask, cfg, 25),
@@ -208,6 +210,6 @@ def research(con, cfg: dict) -> dict:
         "port": {"train": period(eq, "train"), "test": period(eq, "test")},
         "bench": {"train": period(nifty_eq, "train"), "test": period(nifty_eq, "test")},
         "dsr": deflated_sharpe(r_test, trial_sr), "trials": len(trial_sr),
-        "picks": list(latest.index[:int(best.split()[1].rstrip(","))]), "as_of": str(c.index[-1].date()), "split": str(split.date()),
+        "picks": list(latest.index[:sizes[best]]), "as_of": str(c.index[-1].date()), "split": str(split.date()),
         "period": (str(dates[0].date()), str(dates[-1].date())), "n_test_months": int(test.sum()),
     }

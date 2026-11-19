@@ -57,5 +57,24 @@ class Agents(unittest.TestCase):
         self.assertGreater(trades[0]["pnl"], 0)
 
 
+class LiveMessages(unittest.TestCase):
+    def test_each_trade_is_announced_once_even_after_a_restart(self):
+        import os, tempfile
+        from datetime import datetime
+        from unittest import mock
+        from screener import db, intraday, live
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        con = db.connect(os.path.join(d.name, "t.db"))
+        self.addCleanup(con.close)
+        bars = {"X": two_days([100.0 + 0.01 * k for k in range(75)])}
+        now = datetime(2026, 11, 20, 15, 31, tzinfo=intraday.IST)
+        with mock.patch.object(live, "candles", lambda *a, **k: bars),                 mock.patch.object(intraday, "liquid_universe", lambda *a: ["X"]):
+            first = agents.live_cycle(con, load_config(), {"X"}, now)
+            again = agents.live_cycle(con, load_config(), {"X"}, now)    # same as a restart: state is in the DB
+        self.assertEqual(len(first), 2)                                     # Quant Bot bought, then closed at 3:15
+        self.assertEqual(again, [])
+
+
 if __name__ == "__main__":
     unittest.main()

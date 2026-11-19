@@ -235,7 +235,7 @@ def board_text(con, day: str) -> str:
     return "\n".join(lines)
 
 
-def live_cycle(con, cfg: dict, picks: set, announced: set, now: datetime) -> list[str]:
+def live_cycle(con, cfg: dict, picks: set, now: datetime) -> list[str]:
     """Replays today so far for every agent on the latest closed candles; returns messages for new events."""
     from . import live
     symbols = sorted(set(intraday.liquid_universe(con, cfg)) | picks)
@@ -244,6 +244,8 @@ def live_cycle(con, cfg: dict, picks: set, announced: set, now: datetime) -> lis
     data = {s: df[df.index + pd.Timedelta(minutes=5) <= naive] for s, df in data.items()}  # closed candles only
     today = prepare(data, now.date())
     msgs, day = [], now.date().isoformat()
+    sent_key = f"agents_sent:{day}"  # kept in the database: a restart mid-day doesn't resend old trades
+    announced = {tuple(k) for k in json.loads(get_state(con, sent_key) or "[]")}
     for a in AGENTS:
         trades = run_day(a, today, picks, cfg)
         save(con, day, a.key, trades, "live")
@@ -255,6 +257,7 @@ def live_cycle(con, cfg: dict, picks: set, announced: set, now: datetime) -> lis
                 if key not in announced:
                     announced.add(key)
                     msgs.append(_msg_trade(a, t, opened))
+    set_state(con, sent_key, json.dumps(sorted(announced)))
     return msgs
 
 
@@ -275,7 +278,7 @@ def run(cfg: dict, con) -> None:
     """Runs all agents during market hours, every trading day, until stopped (Ctrl+C)."""
     from . import telegram
     from .bot import market_is_open
-    announced, picks, last_candle, reported = set(), set(), None, None
+    picks, last_candle, reported = quant_picks(con, cfg), None, None  # before 9:15, not during the first scan
     ui.ok("Agents running (paper only). They trade 9:30-3:15 on market days; results go to Telegram. Ctrl+C stops.")
     telegram.send("🤖 <b>Trading agents switched on</b> (paper only): " + ", ".join(a.name for a in AGENTS)
                   + ". ₹10,000 each per day, everything closed by 3:15.", rich=True)
@@ -287,9 +290,7 @@ def run(cfg: dict, con) -> None:
             if candle != last_candle and now >= candle + timedelta(seconds=20):
                 last_candle = candle
                 try:
-                    if not picks:
-                        picks = quant_picks(con, cfg)
-                    msgs = live_cycle(con, cfg, picks, announced, now)
+                    msgs = live_cycle(con, cfg, picks, now)
                     ui.info(f"{now:%H:%M} checked; {len(msgs)} new trade events")
                     for m in msgs:
                         ui.console.print(m)
@@ -300,11 +301,11 @@ def run(cfg: dict, con) -> None:
         elif now.time() >= dtime(15, 31) and reported != day and con.execute(
                 "SELECT 1 FROM agent_trades WHERE mode='live' AND day=?", (day,)).fetchone():
             try:
-                live_cycle(con, cfg, picks, announced, now)  # final replay: every trade now closed at 3:15
+                live_cycle(con, cfg, picks, now)  # final replay: every trade now closed at 3:15
             except Exception as e:
                 ui.warn(f"final check failed: {e}")
             text = board_text(con, day)
             ui.console.print(text)
             telegram.send(text, rich=True)
-            reported, announced, picks = day, set(), set()
+            reported, picks = day, quant_picks(con, cfg)
         time.sleep(15)
