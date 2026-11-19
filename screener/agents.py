@@ -278,6 +278,10 @@ def run(cfg: dict, con) -> None:
     """Runs all agents during market hours, every trading day, until stopped (Ctrl+C)."""
     from . import telegram
     from .bot import market_is_open
+    import sys
+    if sys.platform == "win32":  # keep the PC from idle-sleeping while this window is open (no settings changed)
+        import ctypes
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
     picks, last_candle, reported = quant_picks(con, cfg), None, None  # before 9:15, not during the first scan
     ui.ok("Agents running (paper only). They trade 9:30-3:15 on market days; results go to Telegram. Ctrl+C stops.")
     telegram.send("🤖 <b>Trading agents switched on</b> (paper only): " + ", ".join(a.name for a in AGENTS)
