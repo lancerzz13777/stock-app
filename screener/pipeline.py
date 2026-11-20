@@ -30,6 +30,9 @@ def update_all(cfg, con, limit=None):
     if adjusted:  # a re-download replaces the whole history, so put NSE's newer closes back (files are cached)
         prices.fill_from_nse(con, symbols)
 
+    from . import delivery
+    ui.info(f"    delivery %: {delivery.fill(con)} new trading day(s)")
+
     ui.console.print("[bold]3/4[/] Fundamentals (only stocks passing the price/liquidity filters)")
     snap = scoring.build_snapshots(prices.load_recent_prices(con))
     snap = snap[snap.index.isin(symbols)]

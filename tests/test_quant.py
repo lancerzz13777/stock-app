@@ -42,5 +42,20 @@ class Quant(unittest.TestCase):
         self.assertEqual(eq.iloc[-1], eq.iloc[0])                 # same 10 kept: no more charges
 
 
+class Delivery(unittest.TestCase):
+    def test_reads_nse_full_bhavcopy_keeping_eq_only(self):
+        from datetime import date
+        from unittest import mock
+        from screener import delivery
+        csv = ("SYMBOL, SERIES, DATE1, CLOSE_PRICE, DELIV_QTY, DELIV_PER\n"
+               "SBIN, EQ, 19-Nov-2026, 970.00, 100, 41.57\n"
+               "TINYCO, BE, 19-Nov-2026, 12.00, 50, 100.00\n"      # trade-for-trade: always 100%, dropped
+               "NEWCO, EQ, 19-Nov-2026, 50.00, -, -\n")            # no delivery figure, dropped
+        reply = mock.Mock(status_code=200, content=csv.encode(), raise_for_status=lambda: None)
+        with mock.patch.object(delivery.requests, "get", lambda *a, **k: reply):
+            df = delivery.fetch(date(2026, 11, 19))
+        self.assertEqual(df.values.tolist(), [["SBIN", "2026-11-19", 41.57]])
+
+
 if __name__ == "__main__":
     unittest.main()

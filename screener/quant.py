@@ -34,10 +34,13 @@ ALPHAS = {
     "reversal_1m": ("Fell most last month (bounce-back)", "Jegadeesh 1990"),
     "volume_surge": ("Last week's volume vs its 3-month normal", "Gervais, Kaniel & Mingelgrin 2001"),
     "illiquidity": ("Price moves a lot per rupee traded", "Amihud 2002"),
+    # Phase 3: India-only free data (NSE delivery %, from Nov 2019)
+    "delivery_pct": ("High share of traded stock taken into demat (last week)", "NSE delivery data; Indian studies"),
+    "delivery_surge": ("Delivery % last week vs its own 3-month normal", "NSE delivery data"),
 }
 
 
-def alphas(f: dict, volume: pd.DataFrame) -> dict[str, pd.DataFrame]:
+def alphas(f: dict, volume: pd.DataFrame, deliv: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Every alpha as a wide table (rows = days, columns = stocks)."""
     c = f["close"]
     ret = c.pct_change(fill_method=None)
@@ -51,6 +54,8 @@ def alphas(f: dict, volume: pd.DataFrame) -> dict[str, pd.DataFrame]:
         "reversal_1m": -(c / c.shift(21) - 1),
         "volume_surge": volume.rolling(5).mean() / volume.rolling(60, min_periods=40).mean(),
         "illiquidity": (ret.abs() / (c * volume).replace(0, np.nan)).rolling(60, min_periods=40).mean(),
+        "delivery_pct": deliv.rolling(5, min_periods=3).mean(),
+        "delivery_surge": deliv.rolling(5, min_periods=3).mean() - deliv.rolling(60, min_periods=40).mean(),
     }
 
 
@@ -145,7 +150,10 @@ def research(con, cfg: dict) -> dict:
     if dates[-1] != c.index[-1]:
         dates = dates.append(c.index[-1:])
     mask, fwd = mask.loc[dates], fwd.loc[dates]
-    al = {k: v.loc[dates] for k, v in alphas(f, volume).items()}
+    from . import delivery
+    deliv = delivery.wide(con, str(c.index[0].date())).reindex(index=c.index, columns=c.columns)
+    al = {k: v.loc[dates] for k, v in alphas(f, volume, deliv).items()}
+    del deliv
     vol = f["vol"].loc[dates]
     del f, w, volume
     from .fundamentals import load_fundamentals

@@ -221,7 +221,7 @@ def check_stock(cfg, con):
 def quant_report(cfg, con):
     from . import pipeline, quant
     ui.title("Quant Research", "alphas -> IC -> combined score -> portfolio -> luck check")
-    with console.status("[cyan]Scoring ~2,300 stocks on 9 alphas over 10 years (a minute or two)..."):
+    with console.status("[cyan]Scoring ~2,300 stocks on 11 alphas over 10 years (a minute or two)..."):
         q = quant.research(con, cfg)
     t, split = q["table"], q["split"]
     ui.info(f"Monthly tests {q['period'][0]} to {q['period'][1]}. Weights chosen on data up to {split}; "

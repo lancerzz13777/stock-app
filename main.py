@@ -85,7 +85,7 @@ MENU = [
         ("Y", "Strategy Lab", "test Momentum, Minervini, O'Neil, Darvas, Low-vol, Dual momentum"),
         ("S", "Strategy picks for my budget", "what the winning strategy selects today"),
         ("G", "Check a stock", "Graham, Buffett, Lynch, QGLP, CAN SLIM checklists"),
-        ("Q", "Quant research", "9 alphas: which really predict returns, the mix, and a luck check"),
+        ("Q", "Quant research", "11 alphas: which really predict returns, the mix, and a luck check"),
         ("A1", "Trading agents: backtest", "4 robot day-traders, Rs 10,000 a day each, on past candles"),
         ("A2", "Trading agents: run today", "they paper-trade live 9:30-3:15 and report to Telegram"),
     ]),

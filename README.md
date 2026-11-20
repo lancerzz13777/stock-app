@@ -65,7 +65,7 @@ Graham (*The Intelligent Investor*), Buffett (*The Warren Buffett Way*), Lynch (
 
 ## Quant research (menu → Q, or `python main.py quant`)
 
-Tests 9 classic alphas (momentum, 52-week high, low volatility, reversal, volume, illiquidity...) the way quant funds do:
+Tests 11 alphas (momentum, 52-week high, low volatility, reversal, volume, illiquidity, and NSE delivery %...) the way quant funds do:
 - **IC:** how well each one ranks next month's returns, with a t-stat (above 2 = probably real).
 - **Combined score:** the alphas are mixed with weights chosen only on older years, then judged on unseen years.
 - **Portfolio:** a top-10 portfolio from the combined score, after every charge, against the Nifty.
