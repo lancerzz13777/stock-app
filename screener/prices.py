@@ -36,7 +36,7 @@ def nse_day(day: date) -> pd.DataFrame | None:
     r.raise_for_status()
     z = zipfile.ZipFile(io.BytesIO(r.content))
     b = pd.read_csv(z.open(z.namelist()[0]))
-    b = b[b["SctySrs"].isin(["EQ", "BE", "BZ"])]
+    b = b[b["SctySrs"].isin(["EQ", "BE", "BZ"]) & b["ISIN"].str.startswith("INE")]  # companies only: ETFs are INF
     out = pd.DataFrame({"symbol": b["TckrSymb"], "open": b["OpnPric"], "high": b["HghPric"], "low": b["LwPric"],
                         "close": b["ClsPric"], "volume": b["TtlTradgVol"], "prev": b["PrvsClsgPric"]})
     r = requests.get(INDEX_URL.format(day), headers=HEADERS, timeout=30)
@@ -55,8 +55,9 @@ def nse_day(day: date) -> pd.DataFrame | None:
 
 def fill_from_nse(con, symbols: list[str], days: int | None = None) -> tuple[int, set[str]]:
     """Writes NSE's official closes for the last `days` days (they replace Yahoo's for those days).
-    Returns (trading days found, stocks with a split, bonus or big dividend: NSE's "previous close" no
-    longer equals the close in NSE's file for the trading day before - their history must be downloaded again)."""
+    Returns (trading days found, stocks with a split, bonus or demerger: they opened 40%+ away from the
+    previous NSE close, which daily price bands rule out for normal trading - their history must be downloaded
+    again). NSE's own "previous close" can't be used: it is not adjusted for splits."""
     from .intraday import IST
     want = set(symbols) | {NIFTY_SYMBOL}
     found, adjusted, before = 0, set(), None
@@ -78,8 +79,8 @@ def fill_from_nse(con, symbols: list[str], days: int | None = None) -> tuple[int
         rows = df[df["symbol"].isin(want)]
         if before is not None:
             last = dict(zip(before["symbol"], before["close"]))
-            adjusted |= {s for s, p in zip(rows["symbol"], rows["prev"])
-                         if last.get(s) and p > 0 and abs(last[s] / p - 1) > 0.005}
+            adjusted |= {s for s, o in zip(rows["symbol"], rows["open"])
+                         if last.get(s) and o > 0 and abs(o / last[s] - 1) > 0.4}
         before = df
         con.executemany("INSERT OR REPLACE INTO prices VALUES (?, ?, ?, ?, ?, ?, ?)",
                         rows.drop(columns="prev").itertuples(index=False, name=None))

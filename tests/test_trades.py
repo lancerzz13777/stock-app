@@ -159,9 +159,10 @@ class NseFiles(unittest.TestCase):
     def test_reads_official_closes_and_the_nifty(self):
         import io, zipfile
         from screener import prices
-        bhav = ("TradDt,TckrSymb,SctySrs,OpnPric,HghPric,LwPric,ClsPric,PrvsClsgPric,TtlTradgVol\n"
-                "2026-11-05,SBIN,EQ,990,1009.6,987.2,1006.4,979,25273153\n"
-                "2026-11-05,SOMEBOND,GS,100,100,100,100,100,5\n")
+        bhav = ("TradDt,TckrSymb,SctySrs,ISIN,OpnPric,HghPric,LwPric,ClsPric,PrvsClsgPric,TtlTradgVol\n"
+                "2026-11-05,SBIN,EQ,INE062A01020,990,1009.6,987.2,1006.4,979,25273153\n"
+                "2026-11-05,LIQUIDBEES,EQ,INF732E01037,1000,1000,1000,1000,1000,5\n"   # an ETF: dropped
+                "2026-11-05,SOMEBOND,GS,IN0020200005,100,100,100,100,100,5\n")
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as z:
             z.writestr("bhav.csv", bhav)
@@ -187,7 +188,7 @@ class SplitCheck(BotCase):
         wed, thu = datetime(2026, 11, 4).date(), datetime(2026, 11, 5).date()
 
         def frame(day, close, prev):
-            return pd.DataFrame({"symbol": ["SBIN", "TCS", "^NSEI"], "date": day.isoformat(), "open": 1.0,
+            return pd.DataFrame({"symbol": ["SBIN", "TCS", "^NSEI"], "date": day.isoformat(), "open": close,
                                  "high": 1.0, "low": 1.0, "close": close, "volume": 1.0, "prev": prev})
         files = {wed: frame(wed, [1000.0, 2500.0, 24000.0], [990.0, 2490.0, float("nan")]),
                  thu: frame(thu, [505.0, 2510.0, 24100.0], [500.0, 2500.0, float("nan")])}  # SBIN split 1:2

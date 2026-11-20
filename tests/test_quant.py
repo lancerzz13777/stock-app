@@ -43,13 +43,13 @@ class Quant(unittest.TestCase):
 
 
 class FullHistory(unittest.TestCase):
-    def test_split_is_adjusted_with_nse_previous_close(self):
+    def test_split_is_found_from_the_jump_at_the_open(self):
         from screener import pit
         idx = pd.bdate_range("2024-01-01", periods=4)
         w = lambda v: pd.DataFrame({"X": v}, index=idx)
         raw = {"close": w([1000.0, 1010, 505, 510]), "high": w([1000.0, 1010, 505, 510]),
                "low": w([1000.0, 1010, 505, 510]), "volume": w([10.0, 10, 20, 20]),
-               "prev": w([990.0, 1000, 505, 505])}          # 1:2 split on day 3: NSE's previous close is halved
+               "open": w([1000.0, 1005, 505, 506])}         # 1:2 split on day 3: it opens at half the last close
         adj = pit.adjust(raw)
         self.assertEqual(adj["close"]["X"].tolist(), [500.0, 505.0, 505.0, 510.0])
         self.assertEqual(adj["volume"]["X"].tolist(), [20.0, 20.0, 20.0, 20.0])

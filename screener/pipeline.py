@@ -27,8 +27,8 @@ def update_all(cfg, con, limit=None):
     days, adjusted = prices.fill_from_nse(con, symbols)  # official closes first: one file per day
     ui.info(f"    official NSE closes for {days} recent trading days; {len(adjusted)} stocks to re-download")
     prices.update_prices(con, symbols + [prices.NIFTY_SYMBOL], cfg, refetch=adjusted, nse_ok=days > 0)
-    if adjusted:  # a re-download replaces the whole history, so put NSE's newer closes back (files are cached)
-        prices.fill_from_nse(con, symbols)
+    if adjusted:  # put NSE's newer closes back (files are cached), but not on the split stocks: NSE's pre-split
+        prices.fill_from_nse(con, [s for s in symbols if s not in adjusted])  # closes would undo the adjustment
 
     from . import delivery
     ui.info(f"    delivery %: {delivery.fill(con)} new trading day(s)")

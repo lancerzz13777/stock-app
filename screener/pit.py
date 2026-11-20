@@ -4,8 +4,9 @@ that later delisted, went bust or merged - from NSE's own daily files, free.
 Yahoo only knows stocks listed TODAY, so a backtest on it never holds a stock that later died: results look
 better than reality ("survivorship bias"). These files fix that.
 
-Prices are adjusted for splits and bonuses with NSE's own "previous close" (which NSE adjusts on the
-ex-date): when it differs from the last close we stored, everything before that day is scaled by the ratio.
+Prices are adjusted for splits and bonuses: NSE's files carry no split data (even their "previous close" is
+the old, unadjusted price), so a 40%+ jump at the open is read as a corporate action and everything before
+it is scaled by that jump.
 Limit: a stock that changed its symbol shows up as one stock ending and a new one starting.
 """
 import io
@@ -41,7 +42,7 @@ def day(d: date) -> pd.DataFrame | None:
     r.raise_for_status()
     z = zipfile.ZipFile(io.BytesIO(r.content))
     b = pd.read_csv(z.open(z.namelist()[0]))
-    b = b[b["SERIES"].isin(SERIES)]
+    b = b[b["SERIES"].isin(SERIES) & b["ISIN"].str.startswith("INE")]  # companies only: ETFs/fund units are INF
     return pd.DataFrame({"symbol": b["SYMBOL"], "date": d.isoformat(), "open": b["OPEN"], "high": b["HIGH"],
                          "low": b["LOW"], "close": b["CLOSE"], "volume": b["TOTTRDQTY"], "prev": b["PREVCLOSE"]})
 
@@ -81,10 +82,12 @@ def coverage(con) -> tuple[str | None, int]:
 
 
 def adjust(raw: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
-    """Split/bonus-adjusted wide tables from raw ones (needs 'prev'). Volume is scaled the other way."""
-    close = raw["close"]
-    last = close.ffill().shift(1)  # last close before each day (suspended days carried over)
-    ratio = (raw["prev"] / last).where(lambda r: (r - 1).abs() > 0.005).clip(0.02, 50).fillna(1.0)
+    """Split/bonus-adjusted wide tables from raw ones (needs 'open'). Volume is scaled the other way."""
+    last = raw["close"].ffill().shift(1)  # last close before each day (suspended days carried over)
+    # shortcut: daily price bands (20% for most stocks) make a 40%+ jump at the open almost always a split, bonus
+    # or demerger; a real 40% one-day crash would be removed too. Upgrade if a free corporate-actions feed appears.
+    jump = raw["open"].fillna(raw["close"]) / last
+    ratio = jump.where((jump - 1).abs() > 0.4).clip(0.02, 50).fillna(1.0)
     # factor for day t = product of the ratios of every LATER day: scale history to today's share count
     factor = ratio.iloc[::-1].cumprod().iloc[::-1].shift(-1).fillna(1.0)
     out = {k: raw[k] * factor for k in ("close", "high", "low")}
@@ -96,7 +99,7 @@ def load_wide(con, years: int) -> dict[str, pd.DataFrame]:
     """Same shape as strategies.load_wide (close/high/low/volume, rows = dates), but every stock ever traded."""
     since = (pd.Timestamp.today() - pd.DateOffset(years=years + 1, days=60)).strftime("%Y-%m-%d")
     raw = {}
-    for col in ("close", "high", "low", "volume", "prev"):  # one column at a time: keeps peak memory low
+    for col in ("open", "close", "high", "low", "volume"):  # one column at a time: keeps peak memory low
         df = pd.read_sql_query(f"SELECT symbol, date, {col} FROM pit_prices WHERE date >= ?", con, params=(since,))
         w = df.pivot(index="date", columns="symbol", values=col).astype("float32")
         w.index = pd.to_datetime(w.index)
