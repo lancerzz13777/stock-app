@@ -61,7 +61,9 @@ def fill(con) -> int:
 def wide(con, since: str) -> pd.DataFrame:
     """Delivery % as a wide table (rows = dates, columns = symbols)."""
     ensure(con)
-    df = pd.read_sql_query("SELECT symbol, date, pct FROM delivery WHERE date >= ?", con, params=(since,))
-    w = df.pivot(index="date", columns="symbol", values="pct").astype("float32")
+    # in chunks: millions of rows as text would need ~600 MB at once on the small laptop server
+    parts = [ch.pivot(index="date", columns="symbol", values="pct").astype("float32") for ch in pd.read_sql_query(
+        "SELECT symbol, date, pct FROM delivery WHERE date >= ? ORDER BY date", con, params=(since,), chunksize=500_000)]
+    w = pd.concat(parts).groupby(level=0).first() if parts else pd.DataFrame(dtype="float32")
     w.index = pd.to_datetime(w.index)
     return w

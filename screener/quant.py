@@ -176,7 +176,7 @@ def research(con, cfg: dict) -> dict:
     # combined alpha: train-period mean IC as the weight, only for alphas with |t| >= 2 there
     weights = table["train_ic"].where(table["train_t"].abs() >= 2, 0.0)
     if weights.abs().sum() == 0:
-        weights = table["train_ic"]  # nothing significant: fall back to plain IC weights, flagged in the report
+        weights = table["train_ic"].fillna(0)  # nothing significant: fall back to plain IC weights, flagged in the report
     combo = sum(ranks[k] * weights[k] for k in al) / weights.abs().sum()
     combo_ic = rank_ic(combo, fwd, mask)
     table["weight"] = weights / weights.abs().sum()
