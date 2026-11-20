@@ -81,6 +81,20 @@ Each evening the bot values a ₹10 lakh **paper** portfolio built from the quan
 - **Live IC** measures whether last month's ranking actually predicted the returns that followed. The backtest says about 0.06. If live IC sits near 0 for 6 months or more, the edge has faded.
 - Settings: `fund:` in `config.yaml` (`enabled`, `capital`).
 
+## How it learns from its mistakes
+**Trading agents (every evening at 3:31):**
+- Every trade saves the conditions at the moment of buying: time of day, the market's direction (share of stocks up), how far the stock had already moved, and volume.
+- Each agent looks at its last 90 days of trades and asks: "Under which condition do I keep losing?"
+- A pattern counts only when it lost in **both** the older and the newer half of those trades. That keeps one bad week from creating a rule. The agent then skips that condition, with at most 2 rules each.
+- Its trade size follows its overall record: 25% for a steady loser, up to 150% for a steady winner. It never goes past the ₹10,000 daily cap, and never to zero, so it keeps measuring.
+- Lessons are made after the market closes and used from the next trading day. Telegram and the dashboard explain each one in plain words.
+
+**Quant fund (every month):**
+- The weight of each alpha is re-fitted every month from the results known by then, and recent months count more. An alpha that stops working fades out on its own.
+- On the unseen years this learning mix scored IC +0.064 against +0.063 for the fixed mix, about equal but steadier, so it is the one used.
+
+Limit: with weeks of data, a "pattern" can still be chance. The two-halves check lowers that risk but doesn't remove it.
+
 ## Trading agents (menu → A1 backtest, A2 run; or double-click `agents.bat`)
 
 Four robot day-traders, each with its own **paper** account of ₹10,000 a day. They never use more than that and there's no leverage. Each trade has a stop-loss, and everything closes by 3:15 PM:
