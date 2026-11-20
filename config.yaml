@@ -184,6 +184,11 @@ intraday:
   retest_days: 7               # the bot re-tests this setup on the last 60 days every week. If it LOST money,
                                # day-trade alerts pause (signals are still paper-tested) until it works again.
 
+# Trading agents: 4 paper day-traders, Rs 10,000 a day each, run inside the bot (menu A1/A2 explain them)
+agents:
+  enabled: true                # trade every 5-minute candle 9:30-3:15 and send a leaderboard at 3:31
+  web_port: 8050               # dashboard: http://<this computer>:8050 (0 = off). Read-only, home Wi-Fi only.
+
 # Chat advisor - FREE Google Gemini with live Google Search (key from aistudio.google.com/apikey, no card)
 advisor:
   your_name: Aayush            # how the advisor greets you

@@ -150,7 +150,7 @@ def run_day(agent: Agent, day_bars: dict[str, pd.DataFrame], picks: set, cfg: di
             plan = wants(agent, r, picks)
             if plan:
                 cands.append((abs(r["chg"]) if agent.key != "breakout" else r["volume"] / r["vol_avg"], s, r, plan))
-        for _, s, r, plan in sorted(cands, key=lambda x: x[0], reverse=True):
+        for _, s, r, plan in sorted(cands, key=lambda x: (x[1] in picks, x[0]), reverse=True):  # quant picks first
             if len(done) + len(open_) >= agent.max_trades:
                 break
             entry = r["close"] * (1 + SLIPPAGE)
@@ -258,6 +258,7 @@ def live_cycle(con, cfg: dict, picks: set, now: datetime) -> list[str]:
                     announced.add(key)
                     msgs.append(_msg_trade(a, t, opened))
     set_state(con, sent_key, json.dumps(sorted(announced)))
+    set_state(con, "agents_last_cycle", now.isoformat())
     return msgs
 
 
@@ -279,6 +280,12 @@ def run(cfg: dict, con) -> None:
     from . import telegram
     from .bot import market_is_open
     import sys
+    from .config import ROOT
+    marker = ROOT / "data" / "RUNS_ON_SERVER"
+    if sys.platform == "win32" and marker.exists():
+        print(f"The agents run inside the bot on your server ({marker.read_text().strip()}); not starting a second copy "
+              "here (it would send every trade twice). Dashboard: python main.py web")
+        return
     if sys.platform == "win32":  # keep the PC from idle-sleeping while this window is open (no settings changed)
         import ctypes
         ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED

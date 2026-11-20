@@ -76,5 +76,24 @@ class LiveMessages(unittest.TestCase):
         self.assertEqual(again, [])
 
 
+class Dashboard(unittest.TestCase):
+    def test_totals_open_trades_and_valid_json(self):
+        import json, os, tempfile
+        from screener import db, web
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        con = db.connect(os.path.join(d.name, "t.db"))
+        self.addCleanup(con.close)
+        agents.save(con, "2026-11-20", "breakout", [
+            {"symbol": "A", "qty": 10, "entry": 100.0, "entry_time": "09:30", "exit": 102.0, "exit_time": "10:00",
+             "reason": "target", "pnl": 18.5},
+            {"symbol": "B", "qty": 5, "entry": 200.0, "entry_time": "10:05", "exit": None, "exit_time": None,
+             "reason": "open", "pnl": None}], "live")
+        out = json.loads(json.dumps(web.data(con), allow_nan=False))       # NaN would make the page fail
+        self.assertEqual(out["day"], "2026-11-20")
+        self.assertEqual(len(out["trades"]), 2)
+        self.assertEqual(sum(a["pnl"] for a in out["all_time"]), 18.5)    # the open trade isn't counted yet
+
+
 if __name__ == "__main__":
     unittest.main()

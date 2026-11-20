@@ -610,6 +610,13 @@ def telegram_test():
         ui.error("Sending failed - check the token and chat id in .env")
 
 
+def web_dashboard(cfg):
+    from screener import web
+    port = cfg.get("agents", {}).get("web_port") or 8050
+    ui.ok(f"Dashboard: http://localhost:{port}  (this computer's data; Ctrl+C stops)")
+    web.serve(cfg, "127.0.0.1", port)
+
+
 # ====================================================================== entry point
 def main():
     cfg = load_config()
@@ -619,7 +626,7 @@ def main():
             return menu(cfg, con)
         ap = argparse.ArgumentParser(description="Personal NSE stock screener")
         sub = ap.add_subparsers(dest="cmd", required=True)
-        for name in ("lab", "quant", "agents", "agents-backtest", "picks", "check", "live-setup", "desk", "dt-watch", "dt-scan", "dt-backtest", "dt-paper", "scan", "backtest", "paper", "dips", "news",
+        for name in ("lab", "quant", "agents", "agents-backtest", "web", "picks", "check", "live-setup", "desk", "dt-watch", "dt-scan", "dt-backtest", "dt-paper", "scan", "backtest", "paper", "dips", "news",
                      "run", "tick", "telegram-test", "menu"):
             sub.add_parser(name)
         for name in ("update", "daily", "plan"):
@@ -629,7 +636,7 @@ def main():
         args = ap.parse_args()
         {
             "lab": lambda: lab_ui.lab(cfg, con), "quant": lambda: lab_ui.quant_report(cfg, con),
-            "agents": lambda: agents.run(cfg, con), "agents-backtest": lambda: lab_ui.agents_backtest(cfg, con), "picks": lambda: lab_ui.picks(cfg, con),
+            "agents": lambda: agents.run(cfg, con), "web": lambda: web_dashboard(cfg), "agents-backtest": lambda: lab_ui.agents_backtest(cfg, con), "picks": lambda: lab_ui.picks(cfg, con),
             "check": lambda: lab_ui.check_stock(cfg, con), "live-setup": live_setup, "desk": lambda: desk.run(cfg, con), "dt-watch": lambda: dt_watch(cfg, con), "dt-scan": lambda: dt_scan(cfg, con),
             "dt-backtest": lambda: dt_backtest(cfg, con), "dt-paper": lambda: dt_paper(cfg, con),
             "scan": lambda: swing_scan(cfg, con), "backtest": lambda: swing_backtest(cfg, con),

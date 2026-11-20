@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo
 from .config import ROOT
 from .db import connect
 
-from . import advisor, dips, intraday, news, paper, pipeline, prices, telegram, tgfmt, wallet
+from . import advisor, agents, dips, intraday, news, paper, pipeline, prices, telegram, tgfmt, wallet
 
 IST = ZoneInfo("Asia/Kolkata")
 MARKET_OPEN, MARKET_CLOSE = dtime(9, 15), dtime(15, 30)
@@ -74,6 +74,7 @@ class Bot:
         news._ensure(con)
         self.last_dip_scan = None
         self.last_dt_scan = None
+        self.last_agents = None
         self.last_wallet_check = None
         wallet.ensure(con, cfg)
         intraday.ensure(con)
@@ -742,6 +743,11 @@ class Bot:
             self.say("🤖 Stock bot is running. Tap a button below (or type <b>help</b>).", menu=True, rich=True)
         self.state_set("last_start", now0.isoformat())
         offset = int(self.state_get("tg_offset") or 0)
+        port = self.cfg.get("agents", {}).get("web_port")
+        if port:
+            from . import web
+            threading.Thread(target=web.serve, args=(self.cfg, "0.0.0.0", port), daemon=True).start()
+            log(f"Dashboard on port {port}")
         if not market_is_open(now0) and self._needs_catch_up(now0):
             self._submit(self.jobs, "catch_up", self.catch_up)
         while True:
@@ -769,6 +775,13 @@ class Bot:
                 if scans and now >= candle + timedelta(seconds=20) and self.last_dt_scan != candle:
                     if self._submit(self.jobs, "dt_scan", self.dt_scan):
                         self.last_dt_scan = candle
+                if self.cfg.get("agents", {}).get("enabled") and scans and now >= candle + timedelta(seconds=20)                         and self.last_agents != candle and now.time() <= MARKET_CLOSE:
+                    if self._submit(self.jobs, "agents", self.agents_cycle):  # after the day-trade scan
+                        self.last_agents = candle
+                if (self.cfg.get("agents", {}).get("enabled") and now.time() >= dtime(15, 31)
+                        and self.state_get("agents_report") != now.date().isoformat()):
+                    if self._submit(self.jobs, "agents_report", self.agents_report):
+                        self.state_set("agents_report", now.date().isoformat())
                 if dtime(15, 10) <= now.time() <= MARKET_CLOSE and self.trading_today(now):
                     self._submit(self.fast, "square_off", self.square_off_reminder)
                 if scans and self._due(self.last_dip_scan, a["dip_scan_minutes"], now):
@@ -794,6 +807,20 @@ class Bot:
             except Exception:
                 log("ERROR in main loop:\n" + traceback.format_exc())
                 time.sleep(30)
+
+    def agents_cycle(self):
+        msgs = agents.live_cycle(self.con, self.cfg, agents.quant_picks(self.con, self.cfg), datetime.now(IST))
+        if msgs:
+            self.say("\n\n".join(msgs), rich=True)
+
+    def agents_report(self):
+        day = datetime.now(IST).date().isoformat()
+        agents.quant_picks(self.con, self.cfg)  # weekly refresh after the market, never during a scan
+        agents.ensure(self.con)
+        if not self.con.execute("SELECT 1 FROM agent_trades WHERE mode='live' AND day=?", (day,)).fetchone():
+            return
+        self.agents_cycle()  # final replay: every trade is now closed at 3:15
+        self.say(agents.board_text(self.con, day), rich=True)
 
     @staticmethod
     def _due(last, minutes, now) -> bool:

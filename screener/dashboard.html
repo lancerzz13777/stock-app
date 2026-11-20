@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agents Trading Desk</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1b1f24;--dim:#6b7280;--line:#e5e7eb;--up:#0a8a4a;--down:#d0312d;--accent:#2457d6;--chip:#eef2ff}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1216;--card:#171b21;--ink:#e8eaed;--dim:#9aa3ad;--line:#262c34;--up:#2fbf71;--down:#ff5c5c;--accent:#7aa2ff;--chip:#1e2533}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:16px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}
+h1{font-size:22px;margin:0}
+h2{font-size:16px;margin:0 0 10px}
+.sub{color:var(--dim);font-size:13px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:13px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+.dot.live{background:var(--up);box-shadow:0 0 0 3px color-mix(in srgb,var(--up) 25%,transparent)}
+select{font:inherit;padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.grid{display:grid;gap:12px}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));margin-bottom:12px}
+.agents{grid-template-columns:repeat(auto-fit,minmax(250px,1fr));margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+.big{font-size:28px;font-weight:700;letter-spacing:-.5px}
+.up{color:var(--up)}.down{color:var(--down)}
+.label{color:var(--dim);font-size:13px}
+.agent .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.agent .name{font-weight:700}
+.agent .idea{color:var(--dim);font-size:13px;margin:8px 0}
+.stats{display:flex;gap:14px;flex-wrap:wrap;font-size:13px}
+.stats b{font-weight:600}
+.tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:6px;background:var(--chip);color:var(--accent);font-weight:600}
+.tag.warn{color:#b26b00;background:color-mix(in srgb,#f5a623 18%,transparent)}
+.charts{grid-template-columns:1fr 1fr;margin-bottom:12px}
+@media (max-width:760px){.charts{grid-template-columns:1fr}}
+.chartbox{position:relative;height:260px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{color:var(--dim);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.3px}
+td.num,th.num{text-align:right}
+.scroll{overflow-x:auto}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.filters button{font:inherit;font-size:13px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+.filters button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:3px 9px;border-radius:999px;background:var(--chip);font-size:13px}
+.empty{color:var(--dim);padding:18px 0;text-align:center}
+.bar{height:6px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;background:var(--accent)}
+footer{color:var(--dim);font-size:12px;margin:18px 0 6px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Agents Trading Desk</h1>
+      <div class="sub">4 robot day-traders · ₹10,000 paper money each per day · all after brokerage &amp; taxes</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="pill"><span id="dot" class="dot"></span><span id="status">Loading…</span></span>
+      <select id="day" aria-label="Day"></select>
+    </div>
+  </header>
+
+  <section class="grid kpis">
+    <div class="card"><div class="label">Profit / loss on this day</div><div id="k-day" class="big">–</div><div id="k-day-sub" class="sub"></div></div>
+    <div class="card"><div class="label">All days together</div><div id="k-all" class="big">–</div><div id="k-all-sub" class="sub"></div></div>
+    <div class="card"><div class="label">Trades on this day</div><div id="k-trades" class="big">–</div><div id="k-trades-sub" class="sub"></div></div>
+    <div class="card"><div class="label">Money in trades right now</div><div id="k-open" class="big">–</div><div class="bar"><i id="k-open-bar" style="width:0"></i></div><div id="k-open-sub" class="sub"></div></div>
+  </section>
+
+  <section id="agents" class="grid agents"></section>
+
+  <section class="grid charts">
+    <div class="card"><h2>Who made money on this day</h2><div class="chartbox"><canvas id="c-day"></canvas></div></div>
+    <div class="card"><h2>Running total, day by day</h2><div class="chartbox"><canvas id="c-run"></canvas></div></div>
+  </section>
+
+  <section class="card" style="margin-bottom:12px">
+    <h2>Every buy and sell</h2>
+    <div id="filters" class="filters"></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Bought</th><th>Agent</th><th>Stock</th><th class="num">Shares</th><th class="num">Buy price</th><th>Sold</th><th class="num">Sell price</th><th class="num">Profit / loss</th><th>Why it sold</th></tr></thead>
+      <tbody id="trades"></tbody>
+    </table></div>
+    <div class="sub" style="margin-top:8px"><span class="tag">Q</span> = a stock the quant engine ranks in its top 25 (agents pick these first).</div>
+  </section>
+
+  <section class="grid charts">
+    <div class="card">
+      <h2>How each strategy did on the last ~80 days (backtest)</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Agent</th><th class="num">Total</th><th class="num">Trades</th><th class="num">Won</th><th class="num">Green days</th></tr></thead>
+        <tbody id="bt"></tbody>
+      </table></div>
+      <div class="sub" style="margin-top:8px">Past results with the same rules. Quant Bot can't be tested this way (its picks are today's).</div>
+    </div>
+    <div class="card">
+      <h2>Quant engine's top picks</h2>
+      <div id="picks" class="chips"></div>
+      <div id="picks-sub" class="sub" style="margin-top:8px"></div>
+    </div>
+  </section>
+
+  <footer>Paper trading only: no real money, no real orders. One day proves nothing; judge an agent over weeks. Refreshes every 30 seconds.</footer>
+</div>
+
+<script>
+const rs = (x, sign = true) => x == null ? "–" : (sign && x > 0 ? "+" : x < 0 ? "−" : "") + "₹" + Math.abs(x).toLocaleString("en-IN", {maximumFractionDigits: 2, minimumFractionDigits: 2});
+const cls = x => x > 0 ? "up" : x < 0 ? "down" : "";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"})[c]);
+const $ = id => document.getElementById(id);
+const COLORS = {breakout: "#2457d6", bounce: "#e07b00", rider: "#8b3fd9", quant: "#0a8a4a"};
+let D = null, filter = "all", charts = {}, picked = null;
+
+async function load() {
+  try {
+    const r = await fetch("/api" + (picked ? "?day=" + picked : ""), {cache: "no-store"});
+    D = await r.json();
+    render();
+  } catch (e) { $("status").textContent = "Can't reach the app (is the bot running?)"; }
+}
+
+function render() {
+  const names = Object.fromEntries(D.agents.map(a => [a.key, a.name]));
+  // status
+  const last = D.last_cycle ? new Date(D.last_cycle) : null;
+  const fresh = last && (Date.now() - last) < 11 * 60e3;
+  $("dot").className = "dot" + (D.market_open && fresh ? " live" : "");
+  $("status").textContent = D.market_open ? (fresh ? "Live · last check " + last.toLocaleTimeString("en-IN", {hour: "2-digit", minute: "2-digit"}) : "Market open · waiting for the agents")
+                                          : "Market closed" + (last ? " · last check " + last.toLocaleString("en-IN", {day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"}) : "");
+  // day picker
+  const days = D.days.length ? D.days : [D.day];
+  $("day").innerHTML = days.map(d => `<option ${d === D.day ? "selected" : ""}>${d}</option>`).join("");
+
+  const closed = D.trades.filter(t => t.pnl != null), open = D.trades.filter(t => t.pnl == null);
+  const dayPnl = closed.reduce((s, t) => s + t.pnl, 0), allPnl = D.all_time.reduce((s, a) => s + a.pnl, 0);
+  const won = closed.filter(t => t.pnl > 0).length;
+  const inPlay = open.reduce((s, t) => s + t.qty * t.entry, 0), cap = D.cap * D.agents.length;
+  setBig("k-day", dayPnl); $("k-day-sub").textContent = closed.length ? `on ₹${(cap).toLocaleString("en-IN")} of paper money (${(dayPnl / cap * 100).toFixed(2)}%)` : "no closed trades yet";
+  setBig("k-all", allPnl); $("k-all-sub").textContent = `${new Set(D.daily.map(d => d.day)).size} trading day(s) so far`;
+  $("k-trades").textContent = D.trades.length; $("k-trades-sub").textContent = `${won} won · ${closed.length - won} lost · ${open.length} still open`;
+  $("k-open").textContent = rs(inPlay, false); $("k-open-bar").style.width = Math.min(100, inPlay / cap * 100) + "%";
+  $("k-open-sub").textContent = `of ₹${cap.toLocaleString("en-IN")} (${open.length} open position${open.length === 1 ? "" : "s"})`;
+
+  // agent cards
+  const today = Object.fromEntries(D.today.map(a => [a.key, a])), all = Object.fromEntries(D.all_time.map(a => [a.key, a]));
+  $("agents").innerHTML = D.agents.map(a => {
+    const t = today[a.key] || {}, g = all[a.key] || {}, o = open.filter(x => x.agent === a.key).length;
+    const tested = a.tested.startsWith("new") || a.tested.includes("not intraday") ? "warn" : "";
+    return `<div class="card agent" style="border-top:4px solid ${COLORS[a.key]}">
+      <div class="top"><span class="name">${esc(a.name)}</span><span class="big ${cls(t.pnl)}" style="font-size:22px">${rs(t.pnl || 0)}</span></div>
+      <div class="idea">${esc(a.idea)}</div>
+      <div class="stats"><span><b>${t.trades || 0}</b> trades</span><span><b>${t.trades ? Math.round(t.win_rate) + "%" : "–"}</b> won</span><span><b>${o}</b> open</span><span>all days <b class="${cls(g.pnl)}">${rs(g.pnl || 0)}</b></span></div>
+      <div style="margin-top:8px"><span class="tag ${tested}">${esc(a.tested)}</span></div></div>`;
+  }).join("");
+
+  // filters + trades
+  $("filters").innerHTML = [["all", "All agents"], ...D.agents.map(a => [a.key, a.name])]
+    .map(([k, n]) => `<button class="${filter === k ? "on" : ""}" data-k="${k}">${esc(n)}</button>`).join("");
+  const rows = D.trades.filter(t => filter === "all" || t.agent === filter);
+  $("trades").innerHTML = rows.length ? rows.map(t => `<tr>
+      <td>${esc(t.entry_time)}</td><td><span style="color:${COLORS[t.agent]}">●</span> ${esc(names[t.agent])}</td>
+      <td><b>${esc(t.symbol)}</b> ${t.quant ? '<span class="tag">Q</span>' : ""}</td>
+      <td class="num">${t.qty}</td><td class="num">${rs(t.entry, false)}</td>
+      <td>${t.exit_time ? esc(t.exit_time) : '<span class="tag">still open</span>'}</td>
+      <td class="num">${t.exit != null ? rs(t.exit, false) : "–"}</td>
+      <td class="num ${cls(t.pnl)}"><b>${t.pnl != null ? rs(t.pnl) : "–"}</b></td>
+      <td>${esc(t.reason === "open" ? "" : t.reason)}</td></tr>`).join("")
+    : `<tr><td colspan="9" class="empty">No trades yet on this day. Agents trade 9:30–3:15 on market days.</td></tr>`;
+
+  // backtest + picks
+  $("bt").innerHTML = D.backtest.filter(a => a.key !== "quant").map(a => `<tr><td>${esc(a.agent)}</td>
+      <td class="num ${cls(a.pnl)}"><b>${rs(a.pnl)}</b></td><td class="num">${a.trades}</td>
+      <td class="num">${a.trades ? Math.round(a.win_rate) + "%" : "–"}</td><td class="num">${a.green_days}/${a.days}</td></tr>`).join("")
+    || `<tr><td colspan="5" class="empty">Run the backtest once: menu → A1</td></tr>`;
+  $("picks").innerHTML = D.quant.picks.map(p => `<span class="chip">${esc(p)}</span>`).join("") || '<span class="sub">No picks yet.</span>';
+  $("picks-sub").textContent = D.quant.at ? "Updated " + new Date(D.quant.at).toLocaleDateString("en-IN", {day: "numeric", month: "short", year: "numeric"}) + " · refreshed weekly" : "";
+
+  drawCharts(names);
+}
+
+function setBig(id, x) { const el = $(id); el.textContent = rs(x); el.className = "big " + cls(x); }
+
+function drawCharts(names) {
+  if (typeof Chart === "undefined") return;  // offline: the numbers above still work
+  const ink = getComputedStyle(document.body).getPropertyValue("--dim");
+  Chart.defaults.color = ink; Chart.defaults.font.family = "system-ui";
+  const money = {ticks: {callback: v => "₹" + v}, grid: {color: getComputedStyle(document.body).getPropertyValue("--line")}};
+  const byAgent = Object.fromEntries(D.today.map(a => [a.key, a.pnl]));
+  const dayData = {labels: D.agents.map(a => a.name), datasets: [{data: D.agents.map(a => byAgent[a.key] || 0),
+    backgroundColor: D.agents.map(a => (byAgent[a.key] || 0) >= 0 ? "#2fbf71" : "#ff5c5c"), borderRadius: 6}]};
+  const days = [...new Set(D.daily.map(d => d.day))].sort();
+  const run = {labels: days, datasets: D.agents.map(a => {
+    let s = 0; return {label: a.name, borderColor: COLORS[a.key], backgroundColor: COLORS[a.key], tension: .25, pointRadius: 3,
+      data: days.map(d => (s += (D.daily.find(x => x.day === d && x.agent === a.key)?.pnl || 0)))};
+  })};
+  const opts = (legend) => ({maintainAspectRatio: false, animation: false, plugins: {legend: {display: legend},
+    tooltip: {callbacks: {label: c => (c.dataset.label ? c.dataset.label + ": " : "") + rs(c.parsed.y)}}}, scales: {y: money}});
+  for (const [id, cfg] of [["c-day", {type: "bar", data: dayData, options: opts(false)}], ["c-run", {type: "line", data: run, options: opts(true)}]]) {
+    if (charts[id]) { charts[id].data = cfg.data; charts[id].update(); } else charts[id] = new Chart($(id), cfg);
+  }
+}
+
+$("day").onchange = e => { picked = e.target.value === D.days[0] ? null : e.target.value; load(); };
+$("filters").onclick = e => { if (e.target.dataset.k) { filter = e.target.dataset.k; render(); } };
+load();
+setInterval(() => { if (!picked) load(); }, 30000);
+</script>
+</body>
+</html>
