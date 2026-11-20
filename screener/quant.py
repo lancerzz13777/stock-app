@@ -41,23 +41,25 @@ ALPHAS = {
 }
 
 
-def alphas(f: dict, volume: pd.DataFrame, deliv: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """Every alpha as a wide table (rows = days, columns = stocks)."""
+def alphas(f: dict, volume: pd.DataFrame, deliv: pd.DataFrame, dates=None) -> dict[str, pd.DataFrame]:
+    """Every alpha as a wide table (rows = days, columns = stocks). With `dates`, each one is cut to those rows
+    the moment it is computed, so the 1.8 GB laptop never holds eleven full-size tables at once."""
     c = f["close"]
     ret = c.pct_change(fill_method=None)
-    return {
-        "momentum_12_1": f["ret_12_1"],
-        "risk_adj_momentum": (f["ret_6"] + f["ret_12"]) / 2 / f["vol"],
-        "near_52w_high": c / f["high52"],
-        "trend_200d": c / f["sma200"] - 1,
-        "low_volatility": -f["vol"],
-        "reversal_1w": -(c / c.shift(5) - 1),
-        "reversal_1m": -(c / c.shift(21) - 1),
-        "volume_surge": volume.rolling(5).mean() / volume.rolling(60, min_periods=40).mean(),
-        "illiquidity": (ret.abs() / (c * volume).replace(0, np.nan)).rolling(60, min_periods=40).mean(),
-        "delivery_pct": deliv.rolling(5, min_periods=3).mean(),
-        "delivery_surge": deliv.rolling(5, min_periods=3).mean() - deliv.rolling(60, min_periods=40).mean(),
+    fns = {
+        "momentum_12_1": lambda: f["ret_12_1"],
+        "risk_adj_momentum": lambda: (f["ret_6"] + f["ret_12"]) / 2 / f["vol"],
+        "near_52w_high": lambda: c / f["high52"],
+        "trend_200d": lambda: c / f["sma200"] - 1,
+        "low_volatility": lambda: -f["vol"],
+        "reversal_1w": lambda: -(c / c.shift(5) - 1),
+        "reversal_1m": lambda: -(c / c.shift(21) - 1),
+        "volume_surge": lambda: volume.rolling(5).mean() / volume.rolling(60, min_periods=40).mean(),
+        "illiquidity": lambda: (ret.abs() / (c * volume).replace(0, np.nan)).rolling(60, min_periods=40).mean(),
+        "delivery_pct": lambda: deliv.rolling(5, min_periods=3).mean(),
+        "delivery_surge": lambda: deliv.rolling(5, min_periods=3).mean() - deliv.rolling(60, min_periods=40).mean(),
     }
+    return {k: (fn() if dates is None else fn().loc[dates].copy()) for k, fn in fns.items()}
 
 
 def rank_ic(score: pd.DataFrame, fwd: pd.DataFrame, mask: pd.DataFrame) -> pd.Series:
@@ -175,7 +177,7 @@ def research(con, cfg: dict, survivors_only: bool = False) -> dict:
     mask, fwd = mask.loc[dates], fwd.loc[dates]
     from . import delivery
     deliv = delivery.wide(con, str(c.index[0].date())).reindex(index=c.index, columns=c.columns)
-    al = {k: v.loc[dates] for k, v in alphas(f, volume, deliv).items()}
+    al = alphas(f, volume, deliv, dates)
     del deliv
     vol = f["vol"].loc[dates]
     del f, w, volume
