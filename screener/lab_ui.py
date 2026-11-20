@@ -261,7 +261,7 @@ def quant_report(cfg, con):
                   f"[bold]{dsr * 100:.0f}%[/] chance the unseen-years edge is real -> {verdict}." if dsr == dsr
                   else f"Luck check: {verdict}.")
     console.print(f"\nToday's top {len(q['picks'])} by combined score ({q['as_of']}): [bold]{', '.join(q['picks'])}[/]")
-    ui.info("Research only, paper only. Stocks listed today only (survivorship bias makes past results look better).")
+    ui.info(f"Research only, paper only. History used: {q['history']}.")
     path = pipeline.save_csv(t, "quant_alphas")
     ui.info(f"Saved: {path}")
 

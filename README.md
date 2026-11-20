@@ -71,7 +71,9 @@ Tests 11 alphas (momentum, 52-week high, low volatility, reversal, volume, illiq
 - **Portfolio:** a top-10 portfolio from the combined score, after every charge, against the Nifty.
 - **Luck check:** a Deflated Sharpe that allows for the number of ideas tried.
 
-Takes about 2 minutes. Research only: it never trades. Roadmap and results so far are in `DECISIONS.md`.
+Takes about 2 minutes. Research only: it never trades.
+
+**Honest history (Phase 4):** `python main.py history` downloads NSE's own daily files for 10 years, about 30 minutes the first time. They include every stock that later delisted or went bust, and splits are adjusted with NSE's previous close. Once that history is stored, the quant research uses it instead of Yahoo's "only stocks listed today", so the results aren't flattered by survivorship bias. It's for the PC only: the laptop has too little memory. Roadmap and results so far are in `DECISIONS.md`.
 
 ## Trading agents (menu → A1 backtest, A2 run; or double-click `agents.bat`)
 

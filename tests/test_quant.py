@@ -42,6 +42,19 @@ class Quant(unittest.TestCase):
         self.assertEqual(eq.iloc[-1], eq.iloc[0])                 # same 10 kept: no more charges
 
 
+class FullHistory(unittest.TestCase):
+    def test_split_is_adjusted_with_nse_previous_close(self):
+        from screener import pit
+        idx = pd.bdate_range("2024-01-01", periods=4)
+        w = lambda v: pd.DataFrame({"X": v}, index=idx)
+        raw = {"close": w([1000.0, 1010, 505, 510]), "high": w([1000.0, 1010, 505, 510]),
+               "low": w([1000.0, 1010, 505, 510]), "volume": w([10.0, 10, 20, 20]),
+               "prev": w([990.0, 1000, 505, 505])}          # 1:2 split on day 3: NSE's previous close is halved
+        adj = pit.adjust(raw)
+        self.assertEqual(adj["close"]["X"].tolist(), [500.0, 505.0, 505.0, 510.0])
+        self.assertEqual(adj["volume"]["X"].tolist(), [20.0, 20.0, 20.0, 20.0])
+
+
 class Delivery(unittest.TestCase):
     def test_reads_nse_full_bhavcopy_keeping_eq_only(self):
         from datetime import date

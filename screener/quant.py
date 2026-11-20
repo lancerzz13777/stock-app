@@ -129,13 +129,16 @@ def deflated_sharpe(r: pd.Series, trial_sharpes: list[float]) -> float:
     return nd.cdf((sr - sr0) * math.sqrt(len(r) - 1) / den)
 
 
-def research(con, cfg: dict) -> dict:
+def research(con, cfg: dict, survivors_only: bool = False) -> dict:
+    """survivors_only=True forces Yahoo's listed-today history even when the full NSE history is stored."""
     lab = cfg["lab"]
     rf = lab["risk_free_pct"] / 100
     n = lab["positions"]
     split = pd.Timestamp(strategies.split_date(cfg))
 
-    w = strategies.load_wide(con, lab["years"])
+    from . import pit
+    full = not survivors_only and pit.coverage(con)[1] >= 240 * lab["years"]  # every NSE stock, delisted too
+    w = pit.load_wide(con, lab["years"]) if full else strategies.load_wide(con, lab["years"])
     nifty = w["close"].pop("^NSEI").dropna()
     volume = w["volume"].drop(columns=["^NSEI"], errors="ignore")
     for k in ("high", "low"):
@@ -143,7 +146,8 @@ def research(con, cfg: dict) -> dict:
     f = strategies.features(w)
     c, fl = f["close"], cfg["filters"]
     mask = (c >= fl["min_price"]) & (f["turnover60"] >= fl["min_avg_turnover_cr"] * 1e7) & f["ret_12"].notna()
-    fwd = (c.shift(-HORIZON) / c - 1).clip(-0.9, 3)
+    # a stock that stops trading counts at its LAST price (bust stocks lose), not as flat
+    fwd = (w["close"].ffill().shift(-HORIZON) / c - 1).clip(-0.9, 3)
 
     # judge only on non-overlapping monthly dates once a year of history exists; keep the latest day for picks
     dates = c.index[260::HORIZON]
@@ -218,6 +222,7 @@ def research(con, cfg: dict) -> dict:
         "port": {"train": period(eq, "train"), "test": period(eq, "test")},
         "bench": {"train": period(nifty_eq, "train"), "test": period(nifty_eq, "test")},
         "dsr": deflated_sharpe(r_test, trial_sr), "trials": len(trial_sr),
+        "history": "every NSE stock, delisted ones too" if full else "only stocks listed today (survivorship bias)",
         "picks": list(latest.index[:sizes[best]]), "as_of": str(c.index[-1].date()), "split": str(split.date()),
         "period": (str(dates[0].date()), str(dates[-1].date())), "n_test_months": int(test.sum()),
     }
