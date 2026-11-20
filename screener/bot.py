@@ -817,6 +817,10 @@ class Bot:
         day = datetime.now(IST).date().isoformat()
         agents.quant_picks(self.con, self.cfg)  # weekly refresh after the market, never during a scan
         agents.ensure(self.con)
+        last_bt = self.state_get("agents_backtest_at")
+        if not last_bt or datetime.fromisoformat(last_bt) < datetime.now(IST) - timedelta(days=7):
+            agents.backtest(self.con, self.cfg)  # weekly, for the dashboard's backtest table
+            self.state_set("agents_backtest_at", datetime.now(IST).isoformat())
         if not self.con.execute("SELECT 1 FROM agent_trades WHERE mode='live' AND day=?", (day,)).fetchone():
             return
         self.agents_cycle()  # final replay: every trade is now closed at 3:15

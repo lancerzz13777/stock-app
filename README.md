@@ -84,6 +84,19 @@ Four robot day-traders, each with its own **paper** account of ₹10,000 a day. 
 | Trend Rider | stock up 1.5–6% at new day highs, trailing stop 1% | the agent backtest only |
 | Quant Bot | the quant engine's top picks above VWAP at 9:30, stop 1.5% | quant score tested monthly, not intraday |
 
+**Where they run:** inside the always-on bot on the laptop, every 5-minute candle (config `agents.enabled`).
+
+**Dashboard:** open `http://192.168.1.9:8050` from any phone or PC on home Wi-Fi. It shows:
+- profit/loss for the day and for all days;
+- each agent's results;
+- every buy and sell, with why it sold;
+- open positions;
+- charts, the backtest, and the quant picks.
+
+The page only reads data; it can't trade. On the PC, `python main.py web` shows the PC's own data at `http://localhost:8050`.
+
+**Quant priority:** when several stocks qualify at the same moment, every agent picks the quant engine's top-25 stocks first.
+
 Every trade and the day's leaderboard go to Telegram. The agents only send messages; they never read your chat, so they can run on the PC while the bot runs on the laptop. Keep the PC awake (no sleep) from 9:15 to 3:35.
 
 ## Live (real-time) prices with Angel One (menu → L)
