@@ -20,6 +20,7 @@ import pandas as pd
 from . import strategies
 from .charges import side_charges
 
+HALF_LIFE = 24  # months: in the learning mix, an IC from 2 years ago counts half as much as last month's
 HORIZON = 21    # trading days ~ one month: the holding period every alpha is judged on
 MIN_STOCKS = 50  # skip dates with fewer eligible stocks (early years)
 
@@ -72,6 +73,16 @@ def ic_stats(ic: pd.Series) -> dict:
     sd = ic.std()
     return {"ic": ic.mean() if n else float("nan"), "t": ic.mean() / sd * math.sqrt(n) if n > 2 and sd > 0 else 0.0,
             "hit": (ic > 0).mean() * 100 if n else float("nan"), "n": n}
+
+
+def learned_weights(ics: pd.DataFrame) -> pd.DataFrame:
+    """Learning from results: the weight of each alpha on each date, from ONLY the ICs already known then
+    (last month's result is known at this date), recent months counting more. An alpha needs a t-stat of 2+
+    so far to count, so one lucky month can't switch it on and a few bad months fade it out."""
+    known = ics.shift(1)
+    n = known.notna().cumsum()
+    t = known.expanding().mean() / known.expanding().std() * np.sqrt(n)
+    return known.ewm(halflife=HALF_LIFE, min_periods=12).mean().where(t.abs() >= 2, 0.0)
 
 
 def centred_rank(score: pd.DataFrame, mask: pd.DataFrame) -> pd.DataFrame:
@@ -172,9 +183,9 @@ def research(con, cfg: dict, survivors_only: bool = False) -> dict:
     sectors = load_fundamentals(con)["sector"].dropna().to_dict()
 
     train, test = dates <= split, dates > split
-    rows, ranks = [], {}
+    rows, ranks, ics = [], {}, {}
     for k, a in al.items():
-        ic = rank_ic(a, fwd, mask)
+        ic = ics[k] = rank_ic(a, fwd, mask).reindex(dates)
         tr, te = ic_stats(ic[ic.index <= split]), ic_stats(ic[ic.index > split])
         ranks[k] = centred_rank(a, mask)
         top = a.where(mask).rank(axis=1, pct=True) >= 0.8
@@ -192,6 +203,12 @@ def research(con, cfg: dict, survivors_only: bool = False) -> dict:
     combo = sum(ranks[k] * weights[k] for k in al) / weights.abs().sum()
     combo_ic = rank_ic(combo, fwd, mask)
     table["weight"] = weights / weights.abs().sum()
+
+    # the LEARNING mix: re-weighted every month from results known by then (walk-forward, no peeking)
+    lw = learned_weights(pd.DataFrame(ics))
+    learned = sum(ranks[k].mul(lw[k], axis=0) for k in al).div(lw.abs().sum(axis=1).replace(0, np.nan), axis=0)
+    learned_ic = rank_ic(learned, fwd, mask)
+    table["weight_now"] = lw.iloc[-1] / (lw.iloc[-1].abs().sum() or 1)
 
     # portfolios: every single alpha (the "trials") plus the combination, all after charges
     def ex_returns(eq):
@@ -217,7 +234,10 @@ def research(con, cfg: dict, survivors_only: bool = False) -> dict:
 
     r_test = ex_returns(eq)
     r_test = r_test[r_test.index > split]
-    latest = combo.iloc[-1].where(mask.iloc[-1]).dropna().sort_values(ascending=False)
+    lt, ft = ic_stats(learned_ic[learned_ic.index > split]), ic_stats(combo_ic[combo_ic.index > split])
+    use_learned = lt["n"] > 0 and lt["ic"] >= ft["ic"]
+    live = learned if use_learned else combo
+    latest = live.iloc[-1].where(mask.iloc[-1]).dropna().sort_values(ascending=False)
     return {
         "table": table, "weights_fallback": bool((table["train_t"].abs() < 2).all()),
         "combo_train": ic_stats(combo_ic[combo_ic.index <= split]), "combo_test": ic_stats(combo_ic[combo_ic.index > split]),
@@ -225,7 +245,8 @@ def research(con, cfg: dict, survivors_only: bool = False) -> dict:
         "variants": vtable, "best": best,
         "port": {"train": period(eq, "train"), "test": period(eq, "test")},
         "bench": {"train": period(nifty_eq, "train"), "test": period(nifty_eq, "test")},
-        "dsr": deflated_sharpe(r_test, trial_sr), "trials": len(trial_sr),
+        "dsr": deflated_sharpe(r_test, trial_sr), "trials": len(trial_sr) + 1,  # +1: the learning mix was tried too
+        "learned_test": lt, "use_learned": use_learned,
         "history": "every NSE stock, delisted ones too" if full else "only stocks listed today (survivorship bias)",
         "picks": list(latest.index[:specs[best]["n"]]), "as_of": str(c.index[-1].date()), "split": str(split.date()),
         "period": (str(dates[0].date()), str(dates[-1].date())), "n_test_months": int(test.sum()),

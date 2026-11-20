@@ -121,6 +121,14 @@ footer{color:var(--dim);font-size:12px;margin:18px 0 6px;text-align:center}
     </div>
   </section>
 
+  <section class="card" style="margin-bottom:12px">
+    <h2>What the agents learned from their losses</h2>
+    <div id="lessons"></div>
+    <div class="sub" style="margin-top:8px">Every evening each agent checks its trades of the last 90 days for a condition it keeps losing in
+      (time of day, market direction, the stock's move, volume). A pattern counts only if it lost in both the older and the newer half
+      of its trades; then the agent skips that condition. Its trade size follows its record (25%–150%).</div>
+  </section>
+
   <footer>Paper trading only: no real money, no real orders. One day proves nothing; judge an agent over weeks. Refreshes every 30 seconds.</footer>
 </div>
 
@@ -208,6 +216,14 @@ function render() {
       <td class="num">${rs(h.price, false)}</td><td class="num ${cls(h.pnl_pct)}">${pct(h.pnl_pct)}</td></tr>`).join("")
       + (F.holdings.length ? `<tr><td>Cash</td><td></td><td></td><td class="num">${rs(F.cash, false)}</td><td></td></tr>` : `<tr><td colspan="5" class="empty">Nothing held yet.</td></tr>`);
   }
+
+  // lessons
+  const L = D.lessons;
+  $("lessons").innerHTML = L ? D.agents.map(a => { const l = L[a.key] || {why: []};
+      return `<p style="margin:6px 0"><span style="color:${COLORS[a.key]}">●</span> <b>${esc(a.name)}</b>
+        <span class="tag">size ${Math.round((l.size || 1) * 100)}%</span> ${(l.avoid || []).map(x => `<span class="tag warn">skips: ${esc(x[1])}</span>`).join(" ")}
+        <br><span class="sub">${esc((l.why || []).join(" "))}</span></p>`; }).join("") + `<div class="sub">Lessons made for ${esc(L.made)}.</div>`
+    : '<span class="sub">First lessons appear after today's 3:31 report.</span>';
 
   drawCharts(names);
 }

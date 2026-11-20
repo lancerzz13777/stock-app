@@ -60,6 +60,79 @@ BY_KEY = {a.key: a for a in AGENTS}
 
 def ensure(con):
     con.executescript(SCHEMA)
+    if "context" not in [r[1] for r in con.execute("PRAGMA table_info(agent_trades)")]:
+        con.execute("ALTER TABLE agent_trades ADD COLUMN context TEXT")  # the conditions at entry, for learning
+
+
+# ---------------------------------------------------------------- learning from losses
+# Every trade records the conditions when it was bought. Each evening the agent looks for a condition under which
+# it keeps losing; if that pattern holds in BOTH the older and the newer half of its trades (so it isn't one bad
+# week), it stops buying under that condition. Its trade size also follows its record: steady losses shrink it.
+FEATURES = {"time": "time of day", "market": "the market", "move": "the stock's move today", "volume": "volume"}
+
+
+def context(r: pd.Series, t, breadth: float) -> dict:
+    """The conditions at the moment of buying, in buckets a person can read."""
+    hm = t.hour * 60 + t.minute
+    chg = r["chg"] * 100
+    return {"time": "9:30-10:30" if hm < 630 else "10:30-12:00" if hm < 720 else "after 12:00",
+            "market": "market up" if breadth >= 0.55 else "market down" if breadth <= 0.45 else "market flat",
+            "move": "down 2%+" if chg <= -2 else "down 0-2%" if chg < 0 else "up 0-2%" if chg < 2 else "up 2%+",
+            "volume": "volume 2x+ normal" if r["volume"] >= 2 * r["vol_avg"] else "volume below 2x"}
+
+
+def _t(x: pd.Series) -> float:
+    return x.mean() / x.std() * math.sqrt(len(x)) if len(x) > 2 and x.std() > 0 else 0.0
+
+
+def learn(con, today: str, lookback_days: int = 90) -> dict:
+    """Lessons per agent from its trades before `today` (live and backtest): trade size, conditions to avoid,
+    and plain-English reasons for its losses."""
+    ensure(con)
+    since = (pd.Timestamp(today) - pd.Timedelta(days=lookback_days)).date().isoformat()
+    df = pd.read_sql_query("SELECT day, agent, reason, pnl, context FROM agent_trades WHERE pnl IS NOT NULL "
+                           "AND day >= ? AND day < ?", con, params=(since, today))
+    out = {"made": today}
+    for a in AGENTS:
+        g = df[df["agent"] == a.key]
+        les = {"size": 1.0, "avoid": [], "why": [], "trades": len(g)}
+        out[a.key] = les
+        if len(g) < 10:
+            les["why"].append(f"Only {len(g)} trades so far: too few to learn from yet (needs 10).")
+            continue
+        les["size"] = round(min(1.5, max(0.25, 1 + _t(g["pnl"]) / 4)), 2)  # steady losers shrink to 25%, winners grow to 150%
+        losers = g[g["pnl"] < 0]
+        if len(losers):
+            top = losers["reason"].value_counts()
+            les["why"].append(f"{len(losers)} of {len(g)} trades lost; most losses ended by '{top.index[0]}' "
+                              f"({top.iloc[0] / len(losers):.0%} of them).")
+        ctx = g[g["context"].notna() & (g["context"] != "null")]
+        if len(ctx) >= 16:
+            c = pd.DataFrame([json.loads(x) for x in ctx["context"]], index=ctx.index)
+            mid = ctx["day"].sort_values().iloc[len(ctx) // 2]
+            found = []
+            for f in FEATURES:
+                for bucket, idx in c.groupby(f).groups.items():
+                    sub = ctx.loc[idx]
+                    old, new = sub[sub["day"] < mid]["pnl"], sub[sub["day"] >= mid]["pnl"]
+                    if (len(sub) >= 8 and len(old) >= 4 and len(new) >= 4 and old.mean() < 0 and new.mean() < 0
+                            and _t(sub["pnl"]) <= -1.5):
+                        found.append((sub["pnl"].mean(), f, bucket, len(sub), (sub["pnl"] > 0).mean()))
+            for avg, f, bucket, n, win in sorted(found)[:2]:  # at most 2 rules, the worst first
+                les["avoid"].append([f, bucket])
+                les["why"].append(f"Loses when {FEATURES[f]} is '{bucket}' ({n} trades, {win:.0%} won, "
+                                  f"₹{avg:+,.0f} a trade, in older AND newer trades), so it now skips those.")
+        if les["size"] < 1:
+            les["why"].append(f"Its record is negative overall, so its trade size is cut to {les['size']:.0%}.")
+        elif les["size"] > 1:
+            les["why"].append(f"Its record is positive overall, so its trade size is raised to {les['size']:.0%}.")
+    return out
+
+
+def lessons_for(con, day: str) -> dict:
+    """The lessons in force on `day` (made for this day or earlier, so a replay of today never changes)."""
+    q = json.loads(get_state(con, "agents_lessons") or "null")
+    return q if q and q["made"] <= day else {}
 
 
 # ---------------------------------------------------------------- the strategies
@@ -107,12 +180,17 @@ def wants(agent: Agent, r: pd.Series, picks: set) -> dict | None:
     return None
 
 
-def run_day(agent: Agent, day_bars: dict[str, pd.DataFrame], picks: set, cfg: dict) -> list[dict]:
-    """Plays one agent through one day of closed candles. Returns its trades (open ones have exit None)."""
+def run_day(agent: Agent, day_bars: dict[str, pd.DataFrame], picks: set, cfg: dict, lessons: dict | None = None) -> list[dict]:
+    """Plays one agent through one day of closed candles. Returns its trades (open ones have exit None).
+    lessons: this agent's {size, avoid} from learn(); None = the plain rules (the backtest uses those)."""
+    size = (lessons or {}).get("size", 1.0)
+    avoid = {tuple(x) for x in (lessons or {}).get("avoid", [])}
     c = cfg["charges_intraday"]
     times = sorted({t for df in day_bars.values() for t in df.index})
     cash, open_, done = DAY_CAP, {}, []
     rows = {s: df.assign(symbol=s) for s, df in day_bars.items()}
+    # share of stocks up on the day at each candle: "the market"
+    breadth = pd.DataFrame({s: df["chg"] > 0 for s, df in day_bars.items()}).mean(axis=1) if day_bars else pd.Series(dtype=float)
 
     def close(s, price, why, t):
         p = open_.pop(s)
@@ -149,18 +227,21 @@ def run_day(agent: Agent, day_bars: dict[str, pd.DataFrame], picks: set, cfg: di
             r.name = s
             plan = wants(agent, r, picks)
             if plan:
+                plan["context"] = context(r, t, breadth.get(t, 0.5))
+                if any((f, b) in avoid for f, b in plan["context"].items()):
+                    continue  # a condition this agent has learned it loses in
                 cands.append((abs(r["chg"]) if agent.key != "breakout" else r["volume"] / r["vol_avg"], s, r, plan))
         for _, s, r, plan in sorted(cands, key=lambda x: (x[1] in picks, x[0]), reverse=True):  # quant picks first
             if len(done) + len(open_) >= agent.max_trades:
                 break
             entry = r["close"] * (1 + SLIPPAGE)
-            qty = math.floor(min(agent.per_trade, cash) / entry)
+            qty = math.floor(min(agent.per_trade * size, cash) / entry)
             if qty < 1:
                 continue
             cash -= qty * entry
             open_[s] = {"symbol": s, "qty": qty, "entry": round(entry, 2), "entry_time": t.strftime("%H:%M"),
                         "stop": round(plan["stop"], 2), "target": round(plan["target"], 2) if plan["target"] else None,
-                        "trail": plan["trail"]}
+                        "trail": plan["trail"], "context": plan["context"]}
     return done + [{**p, "exit": None, "exit_time": None, "reason": "open", "pnl": None} for p in open_.values()]
 
 
@@ -168,9 +249,9 @@ def run_day(agent: Agent, day_bars: dict[str, pd.DataFrame], picks: set, cfg: di
 def save(con, day: str, agent: str, trades: list[dict], mode: str) -> None:
     ensure(con)
     con.execute("DELETE FROM agent_trades WHERE day=? AND agent=? AND mode=?", (day, agent, mode))
-    con.executemany("INSERT OR REPLACE INTO agent_trades VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+    con.executemany("INSERT OR REPLACE INTO agent_trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     [(day, agent, t["symbol"], t["qty"], t["entry"], t["entry_time"], t["exit"], t["exit_time"],
-                      t["reason"], t["pnl"], mode) for t in trades])
+                      t["reason"], t["pnl"], mode, json.dumps(t.get("context"))) for t in trades])
     con.commit()
 
 
@@ -231,6 +312,10 @@ def board_text(con, day: str) -> str:
     tot = leaderboard(con, "live")
     if tot["days"].max() > 1:
         lines.append("\nAll days so far: " + ", ".join(f"{r.agent} ₹{r.pnl:+,.0f}" for r in tot.itertuples()))
+    q = json.loads(get_state(con, "agents_lessons") or "null")
+    if q:
+        lines.append("\n🧠 <b>What they learned</b> (used from the next trading day)")
+        lines += [f"<b>{a.name}</b>: " + " ".join(q[a.key]["why"]) for a in AGENTS if q.get(a.key, {}).get("why")]
     lines.append("<i>Paper money only. One day proves nothing; watch weeks.</i>")
     return "\n".join(lines)
 
@@ -246,8 +331,9 @@ def live_cycle(con, cfg: dict, picks: set, now: datetime) -> list[str]:
     msgs, day = [], now.date().isoformat()
     sent_key = f"agents_sent:{day}"  # kept in the database: a restart mid-day doesn't resend old trades
     announced = {tuple(k) for k in json.loads(get_state(con, sent_key) or "[]")}
+    lessons = lessons_for(con, day)
     for a in AGENTS:
-        trades = run_day(a, today, picks, cfg)
+        trades = run_day(a, today, picks, cfg, lessons.get(a.key))
         save(con, day, a.key, trades, "live")
         for t in trades:
             for opened in (True, False):
@@ -315,6 +401,7 @@ def run(cfg: dict, con) -> None:
                 live_cycle(con, cfg, picks, now)  # final replay: every trade now closed at 3:15
             except Exception as e:
                 ui.warn(f"final check failed: {e}")
+            set_state(con, "agents_lessons", json.dumps(learn(con, (now + timedelta(days=1)).date().isoformat())))
             text = board_text(con, day)
             ui.console.print(text)
             telegram.send(text, rich=True)

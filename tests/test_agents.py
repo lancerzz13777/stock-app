@@ -95,5 +95,30 @@ class Dashboard(unittest.TestCase):
         self.assertEqual(sum(a["pnl"] for a in out["all_time"]), 18.5)    # the open trade isn't counted yet
 
 
+class Learning(unittest.TestCase):
+    def test_a_loss_pattern_seen_in_old_and_new_trades_is_avoided_and_explained(self):
+        import json, os, tempfile
+        from screener import db
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        con = db.connect(os.path.join(d.name, "t.db"))
+        self.addCleanup(con.close)
+        agents.ensure(con)
+        rows = []
+        for i in range(30):  # 30 days: wins when the market is up, losses when it is down
+            day = f"2026-10-{i + 1:02d}"
+            for mkt, pnl in (("market up", 40.0), ("market down", -60.0)):
+                ctx = {"time": "9:30-10:30", "market": mkt, "move": "up 0-2%", "volume": "volume below 2x"}
+                rows.append((day, "breakout", f"S{mkt[7]}", 1, 100, "10:00", 101, "11:00",
+                             "stop" if pnl < 0 else "target", pnl + i % 3, "backtest", json.dumps(ctx)))
+        con.executemany("INSERT INTO agent_trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        les = agents.learn(con, "2026-11-05")["breakout"]
+        self.assertIn(["market", "market down"], les["avoid"])
+        self.assertNotIn(["market", "market up"], les["avoid"])
+        self.assertTrue(any("market down" in w for w in les["why"]))
+        self.assertTrue(any("'stop'" in w for w in les["why"]))
+        self.assertEqual(agents.learn(con, "2026-10-01")["breakout"]["trades"], 0)  # never learns from the future
+
+
 if __name__ == "__main__":
     unittest.main()

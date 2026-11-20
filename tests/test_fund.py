@@ -32,7 +32,7 @@ class Fund(unittest.TestCase):
     def research(self, best_first):
         latest = pd.Series(range(len(best_first), 0, -1), index=best_first, dtype=float)
         return {"latest": latest, "vol_latest": None, "sectors": {}, "spec": {"n": 10, "calmer": False, "per_sector": None},
-                "picks": best_first[:10], "combo_test": {"ic": 0.06}, "best": "Top 10", "port": {"test": {}}, "dsr": 0.2}
+                "picks": best_first[:10], "combo_test": {"ic": 0.06}, "learned_test": {"ic": 0.07}, "use_learned": True, "best": "Top 10", "port": {"test": {}}, "dsr": 0.2}
 
     def test_buys_the_top_ten_pays_charges_and_waits_a_month(self):
         self.assertTrue(fund.due(self.con, DAYS[0]))

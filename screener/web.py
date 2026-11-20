@@ -51,6 +51,7 @@ def data(con, day: str | None = None, cfg: dict | None = None) -> dict:
                     "max_trades": a.max_trades} for a in agents.AGENTS],
         "trades": trades, "daily": daily, "today": board("live", day), "all_time": board("live"),
         "backtest": board("backtest"), "quant": q, "fund": fund.summary(con, cfg) if cfg else None,
+        "lessons": json.loads(get_state(con, "agents_lessons") or "null"),
     })
 
 

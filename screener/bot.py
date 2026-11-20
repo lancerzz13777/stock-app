@@ -824,6 +824,8 @@ class Bot:
         if not self.con.execute("SELECT 1 FROM agent_trades WHERE mode='live' AND day=?", (day,)).fetchone():
             return
         self.agents_cycle()  # final replay: every trade is now closed at 3:15
+        nxt = (datetime.now(IST) + timedelta(days=1)).date().isoformat()  # lessons start tomorrow; today stays as traded
+        agents.set_state(self.con, "agents_lessons", json.dumps(agents.learn(self.con, nxt)))
         self.say(agents.board_text(self.con, day), rich=True)
 
     @staticmethod

@@ -92,7 +92,8 @@ def rebalance(con, cfg: dict, r: dict, day: str) -> dict:
                     [(day, s, float(v), px[s]) for s, v in r["latest"].items() if s in px])
     set_state(con, "fund_cash", cash)
     set_state(con, "fund_rebalanced", day)
-    set_state(con, "fund_backtest", json.dumps({"ic": r["combo_test"]["ic"], "variant": r["best"],
+    set_state(con, "fund_backtest", json.dumps({"ic": (r["learned_test"] if r["use_learned"] else r["combo_test"])["ic"],
+                                                "learning_mix": r["use_learned"], "variant": r["best"],
                                                 "test_cagr": r["port"]["test"].get("cagr"), "dsr": r["dsr"]}))
     con.commit()
     return {"sold": sold, "bought": bought, "kept": [s for s in held if s in w.index]}

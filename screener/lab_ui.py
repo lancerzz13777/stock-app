@@ -243,6 +243,10 @@ def quant_report(cfg, con):
          ("Top 20% vs all /yr", "right"), ("Monthly churn", "right"), ("Weight", "right")], rows,
         title_="Does each score predict next month's returns?",
         caption="IC = rank correlation with next month's return. Green = t >= 2 (probably real), red = reliably wrong way."))
+    lt = q["learned_test"]
+    console.print(f"Learning mix (weights re-fitted every month from results known by then, recent months count more): "
+                  f"unseen-years IC {lt['ic']:+.3f} (t {lt['t']:+.1f}) vs fixed mix {cs['ic']:+.3f} -> the "
+                  f"[bold]{'learning' if q['use_learned'] else 'fixed'}[/] mix picks today's stocks.")
     if q["weights_fallback"]:
         ui.warn("No alpha was significant in the choosing years, so the weights are plain ICs: treat the mix as weak.")
 
