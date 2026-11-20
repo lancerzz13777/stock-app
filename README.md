@@ -75,6 +75,12 @@ Takes about 2 minutes. Research only: it never trades.
 
 **Honest history (Phase 4):** `python main.py history` downloads NSE's own daily files for 10 years, about 30 minutes the first time. They include every stock that later delisted or went bust, and splits are adjusted with NSE's previous close. Once that history is stored, the quant research uses it instead of Yahoo's "only stocks listed today", so the results aren't flattered by survivorship bias. It's for the PC only: the laptop has too little memory. Roadmap and results so far are in `DECISIONS.md`.
 
+## Live paper fund (runs by itself in the bot)
+Each evening the bot values a ₹10 lakh **paper** portfolio built from the quant engine's picks. Every 21 trading days it re-balances to fresh picks. You'll see one line in the evening report, a message at each re-balance, and a "Live paper fund" section on the dashboard.
+- Fills happen at the evening's NSE close and include every charge. No real orders are ever placed.
+- **Live IC** measures whether last month's ranking actually predicted the returns that followed. The backtest says about 0.06. If live IC sits near 0 for 6 months or more, the edge has faded.
+- Settings: `fund:` in `config.yaml` (`enabled`, `capital`).
+
 ## Trading agents (menu → A1 backtest, A2 run; or double-click `agents.bat`)
 
 Four robot day-traders, each with its own **paper** account of ₹10,000 a day. They never use more than that and there's no leverage. Each trade has a stop-loss, and everything closes by 3:15 PM:

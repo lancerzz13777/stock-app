@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo
 from .config import ROOT
 from .db import connect
 
-from . import advisor, agents, dips, intraday, news, paper, pipeline, prices, telegram, tgfmt, wallet
+from . import advisor, agents, dips, fund, intraday, news, paper, pipeline, prices, telegram, tgfmt, wallet
 
 IST = ZoneInfo("Asia/Kolkata")
 MARKET_OPEN, MARKET_CLOSE = dtime(9, 15), dtime(15, 30)

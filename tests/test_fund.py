@@ -1,0 +1,66 @@
+"""Live paper fund (quant Phase 5) on a throwaway database.  Run with:  python -m unittest discover tests"""
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from screener import db, fund
+from screener.config import load_config
+
+DAYS = [d.date().isoformat() for d in pd.bdate_range("2026-01-01", periods=50)]
+STOCKS = [f"S{i:02d}" for i in range(60)]
+
+
+class Fund(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.cfg = load_config()
+        self.con = db.connect(os.path.join(self.dir.name, "t.db"))
+        self.addCleanup(self.con.close)
+        # stock i grows i/1000 a day: a higher number really does do better
+        rows = [(s, d, 1, 1, 1, 100 * (1 + i / 1000) ** k, 1e6) for i, s in enumerate(STOCKS) for k, d in enumerate(DAYS)]
+        rows += [("^NSEI", d, 1, 1, 1, 20000 + k, 1) for k, d in enumerate(DAYS)]
+        self.con.executemany("INSERT INTO prices VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+        fund.ensure(self.con)
+
+    def research(self, best_first):
+        latest = pd.Series(range(len(best_first), 0, -1), index=best_first, dtype=float)
+        return {"latest": latest, "vol_latest": None, "sectors": {}, "spec": {"n": 10, "calmer": False, "per_sector": None},
+                "picks": best_first[:10], "combo_test": {"ic": 0.06}, "best": "Top 10", "port": {"test": {}}, "dsr": 0.2}
+
+    def test_buys_the_top_ten_pays_charges_and_waits_a_month(self):
+        self.assertTrue(fund.due(self.con, DAYS[0]))
+        fund.rebalance(self.con, self.cfg, self.research(STOCKS[::-1]), DAYS[0])
+        held = fund._positions(self.con)
+        self.assertEqual(sorted(held), sorted(STOCKS[-10:]))
+        fund.mark(self.con, self.cfg, DAYS[0])
+        nav = self.con.execute("SELECT nav FROM fund_nav").fetchone()[0]
+        self.assertLess(nav, self.cfg["fund"]["capital"])           # charges were paid
+        self.assertGreater(nav, self.cfg["fund"]["capital"] * 0.99)
+        self.assertGreaterEqual(fund._cash(self.con, self.cfg), 0)
+        self.assertFalse(fund.due(self.con, DAYS[20]))
+        self.assertTrue(fund.due(self.con, DAYS[21]))
+
+    def test_live_ic_is_measured_a_month_later_and_dropped_stocks_are_sold(self):
+        fund.rebalance(self.con, self.cfg, self.research(STOCKS[::-1]), DAYS[0])
+        fund.mark(self.con, self.cfg, DAYS[20])
+        self.assertIsNone(self.con.execute("SELECT ic FROM fund_ic").fetchone())   # month not over yet
+        fund.mark(self.con, self.cfg, DAYS[21])
+        self.assertAlmostEqual(self.con.execute("SELECT ic FROM fund_ic").fetchone()[0], 1.0)  # ranking was perfect
+
+        moved = fund.rebalance(self.con, self.cfg, self.research(STOCKS), DAYS[21])  # ranking flipped
+        self.assertEqual(len(moved["sold"]), 10)
+        self.assertEqual(sorted(fund._positions(self.con)), STOCKS[:10])
+        s = fund.summary(self.con, self.cfg)
+        self.assertEqual(len(s["holdings"]), 10)
+        self.assertEqual(s["live_ic"], 1.0)
+
+
+if __name__ == "__main__":
+    unittest.main()

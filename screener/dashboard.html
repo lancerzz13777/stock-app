@@ -105,6 +105,22 @@ footer{color:var(--dim);font-size:12px;margin:18px 0 6px;text-align:center}
     </div>
   </section>
 
+  <section class="grid charts">
+    <div class="card">
+      <h2>Live paper fund (quant engine, re-balanced monthly)</h2>
+      <div id="f-head" class="sub"></div>
+      <div class="chartbox"><canvas id="c-fund"></canvas></div>
+      <div id="f-ic" class="sub" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <h2>What the fund holds</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Stock</th><th class="num">Shares</th><th class="num">Bought at</th><th class="num">Now</th><th class="num">Change</th></tr></thead>
+        <tbody id="f-hold"></tbody>
+      </table></div>
+    </div>
+  </section>
+
   <footer>Paper trading only: no real money, no real orders. One day proves nothing; judge an agent over weeks. Refreshes every 30 seconds.</footer>
 </div>
 
@@ -180,6 +196,19 @@ function render() {
   $("picks").innerHTML = D.quant.picks.map(p => `<span class="chip">${esc(p)}</span>`).join("") || '<span class="sub">No picks yet.</span>';
   $("picks-sub").textContent = D.quant.at ? "Updated " + new Date(D.quant.at).toLocaleDateString("en-IN", {day: "numeric", month: "short", year: "numeric"}) + " · refreshed weekly" : "";
 
+  // live paper fund
+  const F = D.fund;
+  if (F) {
+    const pct = x => x == null ? "–" : (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(1) + "%";
+    $("f-head").innerHTML = F.since ? `<b class="${cls(F.fund_pct)}">${rs(F.nav, false)} (${pct(F.fund_pct)})</b> vs Nifty <b class="${cls(F.nifty_pct)}">${pct(F.nifty_pct)}</b> since ${esc(F.since)} · started with ${rs(F.start, false)} · last re-balanced ${esc(F.rebalanced || "–")}`
+      : "Starts after the next evening update (the bot buys the quant engine's picks at that day's close).";
+    $("f-ic").textContent = F.ic_months ? `Live IC ${F.live_ic.toFixed(3)} over ${F.ic_months} month(s) vs ${F.backtest ? F.backtest.ic.toFixed(3) : "–"} in the backtest. Live near 0 for 6+ months = the edge has faded.`
+      : "Live IC (does the ranking still predict next month?) appears one month after the first re-balance." + (F.backtest ? ` Backtest IC: ${F.backtest.ic.toFixed(3)}.` : "");
+    $("f-hold").innerHTML = F.holdings.map(h => `<tr><td><b>${esc(h.symbol)}</b></td><td class="num">${h.qty}</td><td class="num">${rs(h.cost, false)}</td>
+      <td class="num">${rs(h.price, false)}</td><td class="num ${cls(h.pnl_pct)}">${pct(h.pnl_pct)}</td></tr>`).join("")
+      + (F.holdings.length ? `<tr><td>Cash</td><td></td><td></td><td class="num">${rs(F.cash, false)}</td><td></td></tr>` : `<tr><td colspan="5" class="empty">Nothing held yet.</td></tr>`);
+  }
+
   drawCharts(names);
 }
 
@@ -200,7 +229,15 @@ function drawCharts(names) {
   })};
   const opts = (legend) => ({maintainAspectRatio: false, animation: false, plugins: {legend: {display: legend},
     tooltip: {callbacks: {label: c => (c.dataset.label ? c.dataset.label + ": " : "") + rs(c.parsed.y)}}}, scales: {y: money}});
-  for (const [id, cfg] of [["c-day", {type: "bar", data: dayData, options: opts(false)}], ["c-run", {type: "line", data: run, options: opts(true)}]]) {
+  const curve = D.fund ? D.fund.curve : [];
+  const fundData = {labels: curve.map(p => p.date), datasets: [
+    {label: "Paper fund", data: curve.map(p => p.fund), borderColor: COLORS.quant, backgroundColor: COLORS.quant, tension: .2, pointRadius: 0},
+    {label: "Nifty", data: curve.map(p => p.nifty), borderColor: "#888", backgroundColor: "#888", borderDash: [5, 4], tension: .2, pointRadius: 0}]};
+  const fundOpts = {maintainAspectRatio: false, animation: false, plugins: {legend: {display: true},
+    tooltip: {callbacks: {label: c => c.dataset.label + ": " + (c.parsed.y - 100).toFixed(1) + "%"}}},
+    scales: {y: {ticks: {callback: v => (v - 100).toFixed(0) + "%"}, grid: money.grid}}};
+  for (const [id, cfg] of [["c-day", {type: "bar", data: dayData, options: opts(false)}], ["c-run", {type: "line", data: run, options: opts(true)}],
+                           ["c-fund", {type: "line", data: fundData, options: fundOpts}]]) {
     if (charts[id]) { charts[id].data = cfg.data; charts[id].update(); } else charts[id] = new Chart($(id), cfg);
   }
 }

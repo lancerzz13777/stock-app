@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import agents
+from . import agents, fund
 from .db import connect, get_state
 from .intraday import IST
 
@@ -29,7 +29,7 @@ def _clean(x):
     return x
 
 
-def data(con, day: str | None = None) -> dict:
+def data(con, day: str | None = None, cfg: dict | None = None) -> dict:
     from .bot import market_is_open
     agents.ensure(con)
     now = datetime.now(IST)
@@ -50,7 +50,7 @@ def data(con, day: str | None = None) -> dict:
         "agents": [{"key": a.key, "name": a.name, "idea": a.idea, "tested": a.tested, "per_trade": a.per_trade,
                     "max_trades": a.max_trades} for a in agents.AGENTS],
         "trades": trades, "daily": daily, "today": board("live", day), "all_time": board("live"),
-        "backtest": board("backtest"), "quant": q,
+        "backtest": board("backtest"), "quant": q, "fund": fund.summary(con, cfg) if cfg else None,
     })
 
 
@@ -60,7 +60,7 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api":
             con = connect(self.server.db_path)
             try:
-                body = json.dumps(data(con, parse_qs(u.query).get("day", [None])[0])).encode()
+                body = json.dumps(data(con, parse_qs(u.query).get("day", [None])[0], self.server.cfg)).encode()
             finally:
                 con.close()
             self._send(body, "application/json")
@@ -83,5 +83,5 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(cfg: dict, host: str = "127.0.0.1", port: int = 8050) -> None:
     srv = ThreadingHTTPServer((host, port), Handler)
-    srv.db_path = cfg["data"]["db_path"]
+    srv.db_path, srv.cfg = cfg["data"]["db_path"], cfg
     srv.serve_forever()

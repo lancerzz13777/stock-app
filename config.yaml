@@ -189,6 +189,11 @@ agents:
   enabled: true                # trade every 5-minute candle 9:30-3:15 and send a leaderboard at 3:31
   web_port: 8050               # dashboard: http://<this computer>:8050 (0 = off). Read-only, home Wi-Fi only.
 
+# Live paper fund (quant Phase 5): re-balanced to the quant engine's picks every ~21 trading days, valued every evening
+fund:
+  enabled: true                # paper money only - never a real order
+  capital: 1000000             # starting paper money (Rs): 10 lakh, so whole-share rounding over 25 stocks stays small
+
 # Chat advisor - FREE Google Gemini with live Google Search (key from aistudio.google.com/apikey, no card)
 advisor:
   your_name: Aayush            # how the advisor greets you

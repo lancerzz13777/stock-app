@@ -79,6 +79,24 @@ def centred_rank(score: pd.DataFrame, mask: pd.DataFrame) -> pd.DataFrame:
     return (score.where(mask).rank(axis=1, pct=True) - 0.5).fillna(0).where(mask)
 
 
+def target(s: pd.Series, held, n: int, buffer: int, vol_row: pd.Series | None = None,
+           sectors: dict | None = None, per_sector: int | None = None) -> pd.Series:
+    """Weights of the n stocks to hold, from scores sorted best first: held names still in the top
+    n x buffer stay (fewer trades), then the best new ones. Shared by the backtest and the live fund."""
+    zone = set(s.index[: n * buffer])
+    new, count = [], {}
+    for x in [x for x in held if x in zone] + list(s.index):
+        sec = (sectors or {}).get(x) or x  # unknown sector: no cap
+        if x in new or (per_sector and count.get(sec, 0) >= per_sector):
+            continue
+        new.append(x)
+        count[sec] = count.get(sec, 0) + 1
+        if len(new) == n:
+            break
+    w = pd.Series(1.0, index=new) if vol_row is None else (1 / vol_row.reindex(new)).fillna(0)
+    return w / w.sum() if w.sum() > 0 else pd.Series(1 / len(new), index=new)
+
+
 def portfolio(score: pd.DataFrame, fwd: pd.DataFrame, mask: pd.DataFrame, cfg: dict, n: int,
               vol: pd.DataFrame | None = None, sectors: dict | None = None, per_sector: int | None = None) -> pd.Series:
     """Holds the top n by score, re-picked every HORIZON days; keeps a stock while it is in the top
@@ -91,18 +109,8 @@ def portfolio(score: pd.DataFrame, fwd: pd.DataFrame, mask: pd.DataFrame, cfg: d
         s = score.loc[d].where(mask.loc[d]).dropna().sort_values(ascending=False)
         if len(s) < MIN_STOCKS or fwd.loc[d].notna().sum() < MIN_STOCKS:  # last, unfinished month: no result yet
             continue
-        zone = set(s.index[: n * lab["hold_buffer"]])
-        new, count = [], {}
-        for x in [x for x in held if x in zone] + list(s.index):
-            sec = (sectors or {}).get(x) or x  # unknown sector: no cap
-            if x in new or (per_sector and count.get(sec, 0) >= per_sector):
-                continue
-            new.append(x)
-            count[sec] = count.get(sec, 0) + 1
-            if len(new) == n:
-                break
-        w = pd.Series(1.0, index=new) if vol is None else (1 / vol.loc[d, new]).fillna(0)
-        w = w / w.sum() if w.sum() > 0 else pd.Series(1 / len(new), index=new)
+        w = target(s, held, n, lab["hold_buffer"], None if vol is None else vol.loc[d], sectors, per_sector)
+        new = list(w.index)
         # shortcut: charges only on names entering/leaving, priced on their slice; re-weighting kept names is free
         cost = (sum(side_charges(eq * v, "sell", ch).total for x, v in held.items() if x not in w.index)
                 + sum(side_charges(eq * v, "buy", ch).total for x, v in w.items() if x not in held))
@@ -190,14 +198,10 @@ def research(con, cfg: dict, survivors_only: bool = False) -> dict:
         return (pd.concat([pd.Series({dates[0]: float(lab["capital"])}), eq]).pct_change().dropna() - rf / 12)
     trials = {k: portfolio(a, fwd, mask, cfg, n) for k, a in al.items()}
     # Phase 2: ways to turn the combined score into a portfolio; the best on the CHOOSING years is used
-    sizes = {f"Top {n}, equal money": n, "Top 25, equal money": 25, "Top 25, calmer stocks bigger": 25,
-             "Top 25, calmer bigger, max 5 per sector": 25}
-    variants = {
-        f"Top {n}, equal money": portfolio(combo, fwd, mask, cfg, n),
-        "Top 25, equal money": portfolio(combo, fwd, mask, cfg, 25),
-        "Top 25, calmer stocks bigger": portfolio(combo, fwd, mask, cfg, 25, vol=vol),
-        "Top 25, calmer bigger, max 5 per sector": portfolio(combo, fwd, mask, cfg, 25, vol=vol, sectors=sectors, per_sector=5),
-    }
+    specs = {f"Top {n}, equal money": {"n": n}, "Top 25, equal money": {"n": 25},
+             "Top 25, calmer stocks bigger": {"n": 25, "vol": vol},
+             "Top 25, calmer bigger, max 5 per sector": {"n": 25, "vol": vol, "sectors": sectors, "per_sector": 5}}
+    variants = {name: portfolio(combo, fwd, mask, cfg, **sp) for name, sp in specs.items()}
     trial_sr = [(lambda r: r.mean() / r.std())(ex_returns(e)) for e in [*trials.values(), *variants.values()]]
 
     def period(series, part):
@@ -223,6 +227,9 @@ def research(con, cfg: dict, survivors_only: bool = False) -> dict:
         "bench": {"train": period(nifty_eq, "train"), "test": period(nifty_eq, "test")},
         "dsr": deflated_sharpe(r_test, trial_sr), "trials": len(trial_sr),
         "history": "every NSE stock, delisted ones too" if full else "only stocks listed today (survivorship bias)",
-        "picks": list(latest.index[:sizes[best]]), "as_of": str(c.index[-1].date()), "split": str(split.date()),
+        "picks": list(latest.index[:specs[best]["n"]]), "as_of": str(c.index[-1].date()), "split": str(split.date()),
         "period": (str(dates[0].date()), str(dates[-1].date())), "n_test_months": int(test.sum()),
+        # for the live fund (Phase 5): today's full ranking and how the chosen variant builds the portfolio
+        "latest": latest, "vol_latest": vol.iloc[-1], "sectors": sectors,
+        "spec": {"n": specs[best]["n"], "calmer": "vol" in specs[best], "per_sector": specs[best].get("per_sector")},
     }

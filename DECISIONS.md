@@ -55,6 +55,14 @@
   - Survivorship bias barely moved the 25-stock portfolio, but cut top 10 from +10.5% to +6.6%. Concentrated portfolios are hit hardest by stocks that die.
 - Luck check (Deflated Sharpe, 15 ideas): 18%. The edge is not proven yet. Phase 5 (live paper fund) is the real test.
 
+## Phase 5: live paper fund (20 Nov 2026)
+- Runs inside the bot's evening job on the laptop: every 21 trading days it re-runs the quant engine and moves a ₹10 lakh paper portfolio to its picks, with the recipe that won on the choosing years. It is valued every evening against the Nifty.
+- Fills at that evening's NSE close with every delivery charge. This flatters it slightly: a real buyer gets the next morning's price.
+- Stocks it keeps are not resized, which matches the backtest and saves charges. Expensive shares round down to whole shares, and the leftover stays as cash.
+- Alpha decay check: each re-balance stores the full ranking. A month later its live IC is measured and shown next to the backtest IC (about 0.06). If live IC stays near 0 for 6+ months, the edge has faded.
+- The laptop ranks on stocks listed today (it can't hold the full NSE history), so its picks can differ slightly from the PC's research run.
+- Where to see it: a Telegram line in each evening report, a message at each re-balance, and a section on the dashboard.
+
 ## Roadmap
 
 | Phase | What | Status |
@@ -63,5 +71,5 @@
 | 2 | Portfolio construction: 4 ways to build the portfolio, the best one chosen on the choosing years only | done |
 | 3 | India-specific free data: NSE delivery % (from Nov 2019), 2 alphas, updated every evening | done |
 | 4 | Survivorship-free history: 10 years of NSE files incl. 1,000+ delisted stocks, ETFs removed, split-adjusted (`python main.py history`, PC only) | done |
-| 5 | Live paper fund: the bot rebalances a paper portfolio monthly; live vs backtest IC tracked to catch alpha decay | |
+| 5 | Live paper fund: the bot rebalances a paper portfolio monthly; live vs backtest IC tracked to catch alpha decay | started 20 Nov 2026 |
 | 6 | Pairs / stat-arb on sector pairs (needs shorting, so F&O paper only) | |
