@@ -105,6 +105,17 @@ class ServerCare(unittest.TestCase):
         self.con.execute("UPDATE bot_state SET value=? WHERE key='heartbeat'", (pd.Timestamp.now(tz=IST).isoformat(),))
         self.assertFalse(any("main loop" in x for x in fund.health(self.con)))
 
+    def test_dashboard_needs_the_key_only_from_the_internet(self):
+        from screener import web
+        k = web.key(self.con)
+        self.assertEqual(web.key(self.con), k)                                    # made once, then kept
+        net = {"Cf-Connecting-Ip": "1.2.3.4"}
+        self.assertEqual(web.allowed({}, {}, k), (True, False))                   # home Wi-Fi
+        self.assertEqual(web.allowed(net, {}, k), (False, False))                 # internet, no key
+        self.assertEqual(web.allowed(net, {"k": ["wrong"]}, k), (False, False))
+        self.assertEqual(web.allowed(net, {"k": [k]}, k), (True, True))           # Telegram link: sets the cookie
+        self.assertEqual(web.allowed({**net, "Cookie": f"a=1; k={k}"}, {}, k), (True, False))
+
     def test_nse_dates_and_numbers_are_read(self):
         from screener import flows
         self.assertEqual(flows._day("20-NOV-2026"), "2026-11-20")

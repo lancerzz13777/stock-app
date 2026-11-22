@@ -141,7 +141,27 @@ class Bot:
              "pick": "/picks", "dip": "/dips", "dips": "/dips", "check": "/check", "day": "/day", "news": "/news",
              "paper": "/paper", "lab": "/lab", "help": "/help", "start": "/start", "hi": "/start", "hello": "/start",
              "cancel": "/cancel", "undo": "/cancel", "forget": "/forget", "ask": "/ask",
-             "demat": "/demat", "portfolio": "/demat", "holdings": "/demat", "angel": "/demat"}
+             "demat": "/demat", "portfolio": "/demat", "holdings": "/demat", "angel": "/demat",
+             "dashboard": "/dashboard", "web": "/dashboard"}
+
+    def _dashboard_url(self, url: str):
+        """Called from the tunnel thread: own connection, so the main loop's database isn't shared across threads."""
+        from . import web
+        con = connect(self.cfg["data"]["db_path"])
+        try:
+            link = f"{url}/?k={web.key(con)}"
+            con.execute("INSERT OR REPLACE INTO bot_state VALUES ('dashboard_link', ?)", (link,))
+            con.commit()
+        finally:
+            con.close()
+        log("Dashboard reachable from anywhere (link sent to Telegram)")
+        self.say(f"🌐 <b>Dashboard from anywhere</b> (new link after each restart; keep it private):\n{link}", rich=True)
+
+    def cmd_dashboard(self):
+        link = self.state_get("dashboard_link")
+        port = self.cfg.get("agents", {}).get("web_port")
+        self.say(f"🌐 Dashboard: {link}\nAt home also: http://192.168.1.9:{port}" if link else
+                 f"🏠 Dashboard (home Wi-Fi only): http://192.168.1.9:{port}\nTo open it from anywhere, see README → Dashboard from anywhere.")
 
     def handle(self, text: str):
         """Called for every message/tap. Slow commands are passed to a background worker."""
@@ -177,6 +197,7 @@ class Bot:
                 "/plan": lambda: self.cmd_plan(parts), "/dips": self.cmd_dips, "/paper": self.cmd_paper,
                 "/news": self.cmd_news, "/noop": lambda: self.say("👍 OK"), "/cancel": self.cmd_cancel,
                 "/ask": lambda: self.cmd_ask(parts), "/forget": self.cmd_forget, "/demat": self.cmd_demat,
+                "/dashboard": self.cmd_dashboard,
             }.get(cmd)
             if fn:
                 fn()
@@ -751,6 +772,8 @@ class Bot:
             from . import web
             threading.Thread(target=web.serve, args=(self.cfg, "0.0.0.0", port), daemon=True).start()
             log(f"Dashboard on port {port}")
+            from . import tunnel
+            threading.Thread(target=tunnel.run, args=(port, self._dashboard_url, log), daemon=True).start()
         if not market_is_open(now0) and self._needs_catch_up(now0):
             self._submit(self.jobs, "catch_up", self.catch_up)
         while True:

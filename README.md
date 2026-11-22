@@ -123,6 +123,12 @@ Four robot day-traders, each with its own **paper** account of ₹10,000 a day. 
 
 The page only reads data; it can't trade. On the PC, `python main.py web` shows the PC's own data at `http://localhost:8050`.
 
+**Dashboard from anywhere (free, no account):** the laptop runs Cloudflare's `cloudflared` (in `stock-app/bin/`, installed 23 Nov 2026). The bot sends a 🌐 link on Telegram that works on mobile data or any Wi-Fi; type `dashboard` to get it again. The link holds a secret key, so keep it private: without the key the page refuses visitors from the internet. The address changes each time the bot restarts, and the bot sends the new one. To switch it off, delete `bin/cloudflared` on the laptop and restart the bot. To install it again:
+
+```
+ssh lancerzz@192.168.1.9 "cd stock-app && mkdir -p bin && curl -sSL -o bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x bin/cloudflared && pkill -f '[m]ain.py run'"
+```
+
 **Quant priority:** when several stocks qualify at the same moment, every agent picks the quant engine's top-25 stocks first.
 
 Every trade and the day's leaderboard go to Telegram. The agents only send messages; they never read your chat, so they can run on the PC while the bot runs on the laptop. Keep the PC awake (no sleep) from 9:15 to 3:35.

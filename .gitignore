@@ -8,3 +8,4 @@ data/RUNS_ON_SERVER
 deploy/server.txt
 *.db.gz
 graphify-out/
+bin/

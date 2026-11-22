@@ -187,7 +187,7 @@ intraday:
 # Trading agents: 4 paper day-traders, Rs 10,000 a day each, run inside the bot (menu A1/A2 explain them)
 agents:
   enabled: true                # trade every 5-minute candle 9:30-3:15 and send a leaderboard at 3:31
-  web_port: 8050               # dashboard: http://<this computer>:8050 (0 = off). Read-only, home Wi-Fi only.
+  web_port: 8050               # dashboard: http://<this computer>:8050 (0 = off). Read-only. From anywhere too if cloudflared is installed (README).
 
 # Live paper fund (quant Phase 5): re-balanced to the quant engine's picks every ~21 trading days, valued every evening
 fund:

@@ -3,8 +3,12 @@
 GET /       the page (screener/dashboard.html)
 GET /api    everything the page shows, as JSON (?day=YYYY-MM-DD for an earlier day)
 Nothing here can change data or place an order.
+Visits through the internet tunnel (screener/tunnel.py) need the secret key from the Telegram link;
+home Wi-Fi visits don't.
 """
+import hmac
 import json
+import secrets
 import math
 import time
 from datetime import datetime
@@ -56,9 +60,37 @@ def data(con, day: str | None = None, cfg: dict | None = None) -> dict:
     })
 
 
+def key(con) -> str:
+    """The dashboard's secret key, made once and kept in the database."""
+    from .db import set_state
+    k = get_state(con, "dashboard_key")
+    if not k:
+        k = secrets.token_urlsafe(18)
+        set_state(con, "dashboard_key", k)
+    return k
+
+
+def allowed(headers, query: dict, want: str) -> tuple[bool, bool]:
+    """(allowed, set_cookie). Cloudflare adds Cf-Connecting-Ip to every visit from the internet; home visits have none."""
+    if not headers.get("Cf-Connecting-Ip"):
+        return True, False
+    given = query.get("k", [None])[0]
+    if given and hmac.compare_digest(given, want):
+        return True, True
+    for part in (headers.get("Cookie") or "").split(";"):
+        name, _, value = part.strip().partition("=")
+        if name == "k" and hmac.compare_digest(value, want):
+            return True, False
+    return False, False
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
+        ok, self.set_cookie = allowed(self.headers, parse_qs(u.query), self.server.key)
+        if not ok:
+            self.send_error(403, "Open the dashboard from the link the bot sent on Telegram (/dashboard)")
+            return
         if u.path == "/api":
             for attempt in range(3):  # the bot's busiest minutes (3 PM, 3:31 report) can briefly refuse a new connection
                 try:
@@ -83,6 +115,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-store")
+        if self.set_cookie:  # remember the key so the page's own /api calls (and reloads) work
+            self.send_header("Set-Cookie", f"k={self.server.key}; Max-Age=31536000; Path=/; HttpOnly; Secure; SameSite=Lax")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -94,4 +128,7 @@ class Handler(BaseHTTPRequestHandler):
 def serve(cfg: dict, host: str = "127.0.0.1", port: int = 8050) -> None:
     srv = ThreadingHTTPServer((host, port), Handler)
     srv.db_path, srv.cfg = cfg["data"]["db_path"], cfg
+    con = connect(srv.db_path)
+    srv.key = key(con)
+    con.close()
     srv.serve_forever()
