@@ -69,6 +69,14 @@
 - Even with zero costs it made only +1.7%/yr, so the costs aren't what kills it: the signal itself is gone on NSE's liquid stocks. That matches later studies showing pairs profits fading as markets got faster.
 - Decision: don't build F&O pairs paper trading. `python main.py pairs` re-runs the test if the data or the idea changes (for example, cointegration-based pairs).
 
+## Server care and honest numbers (22 Nov 2026)
+- Health alarm: the PC's 8:30 PM task asks the laptop how it is. A main loop silent for over 20 minutes (the bot writes a heartbeat every 5), no evening update for 4+ days, or agents that skipped a trading day all send "🚨 Stock bot needs a look" to Telegram from the PC. If the laptop doesn't answer at all, that alarms too.
+- Backups: the same task has the laptop copy the tables that can't be downloaded again (agent trades, fund, wallet, state, chat, collected NSE data) into `data/backup.sqlite`, then copies it to `data/server-backups/` on the PC. 14 days are kept. Prices aren't backed up because they can be downloaded again.
+- "Database is locked": long jobs held a write open while waiting on Yahoo or NSE (25 stocks at a time, and a 2-minute rate-limit sleep). They now commit after each stock, feed or day, so the bot's other jobs never wait long.
+- Strategy Lab on the full history: it runs on the PC with delisted stocks included, and the result is sent to the laptop with the weekly plan. The laptop keeps the PC's result for 35 days instead of re-running on listed-today stocks. Any number from listed stocks only is labelled "⚠️ listed stocks only, so flattered".
+- Who-is-buying data collected every evening: FII/DII net buying, bulk and block deals, results dates. NSE gives these for the current day only, so collecting daily is the only free way to build a history. They become testable in a year or two.
+- Insider trades: NSE's history works from 2019 up to early 2026. Recent months come back empty from the same API (checked 22 Nov from both machines), so the daily count reads 0. `python main.py flows-backfill` saves the history for testing an insider-buying alpha.
+
 ## Roadmap
 
 | Phase | What | Status |

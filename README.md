@@ -80,6 +80,8 @@ Each evening the bot values a ₹10 lakh **paper** portfolio built from the quan
 - Fills happen at the evening's NSE close and include every charge. No real orders are ever placed.
 - **Live IC** measures whether last month's ranking actually predicted the returns that followed. The backtest says about 0.06. If live IC sits near 0 for 6 months or more, the edge has faded.
 - **The ranking runs on the PC, not the laptop.** The laptop has too little memory to rank about 2,300 stocks. Every evening at 8:30 PM, if the PC is on, it updates its data, ranks every stock and sends the result to the laptop (Windows task "StockApp push-plan", log in `data\push-plan.log`). It skips the work if the laptop's ranking is less than 6 days old. Double-click `push-plan.bat` to run it now. If the PC stays off and a re-balance falls due, the evening report says so and the fund waits.
+- **The same 8:30 PM task looks after the laptop.** It checks the bot is alive and sends "🚨 Stock bot needs a look" to Telegram if not. It copies a backup of everything that can't be downloaded again (trades, fund, wallet, chat) to `data\server-backups\`, keeping 14 days. Weekly, it also runs the Strategy Lab on the full history, delisted stocks included, and sends that honest result to the laptop.
+- **Who is buying:** every evening the bot saves FII/DII flows, bulk and block deals and results dates from NSE. NSE gives no free history for these, so they are kept for tests a year or two from now. `python main.py flows-backfill` saves insider-trade history (2019 to early 2026).
 - Settings: `fund:` in `config.yaml` (`enabled`, `capital`, `server`).
 
 ## How it learns from its mistakes
