@@ -353,6 +353,9 @@ def quant_picks(con, cfg: dict) -> set:
     s = get_state(con, "quant_picks")
     q = json.loads(s) if s else None
     if not q or datetime.fromisoformat(q["at"]) < datetime.now() - timedelta(days=7):
+        import sys
+        if sys.platform != "win32":  # the small Linux server can't rank stocks: the PC pushes picks (push-plan)
+            return set(q["picks"]) if q else set()
         from . import quant
         with ui.console.status("[cyan]Quant Bot: refreshing its picks (about 2 minutes)..."):
             r = quant.research(con, cfg)

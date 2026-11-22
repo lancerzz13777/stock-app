@@ -30,9 +30,23 @@ class Fund(unittest.TestCase):
         fund.ensure(self.con)
 
     def research(self, best_first):
+        """A plan as the PC sends it (through JSON, as on the real wire)."""
+        import json
         latest = pd.Series(range(len(best_first), 0, -1), index=best_first, dtype=float)
-        return {"latest": latest, "vol_latest": None, "sectors": {}, "spec": {"n": 10, "calmer": False, "per_sector": None},
-                "picks": best_first[:10], "combo_test": {"ic": 0.06}, "learned_test": {"ic": 0.07}, "use_learned": True, "best": "Top 10", "port": {"test": {}}, "dsr": 0.2}
+        r = {"latest": latest, "vol_latest": pd.Series(0.02, index=best_first), "sectors": {}, "as_of": DAYS[0],
+             "spec": {"n": 10, "calmer": False, "per_sector": None}, "picks": best_first[:10], "combo_test": {"ic": 0.06},
+             "learned_test": {"ic": 0.07}, "use_learned": True, "best": "Top 10", "port": {"test": {}}, "dsr": float("nan")}
+        return json.loads(json.dumps(fund.make_plan(r)))
+
+    def test_server_waits_for_a_fresh_plan_from_the_pc(self):
+        from screener.db import set_state
+        import json
+        msg = fund.evening(self.con, self.cfg, DAYS[0])
+        self.assertIn("waiting for fresh picks", msg)
+        self.assertEqual(fund._positions(self.con), {})
+        set_state(self.con, "fund_plan", json.dumps(self.research(STOCKS[::-1])))
+        self.assertIn("rebalanced", fund.evening(self.con, self.cfg, DAYS[1]))
+        self.assertEqual(len(fund._positions(self.con)), 10)
 
     def test_buys_the_top_ten_pays_charges_and_waits_a_month(self):
         self.assertTrue(fund.due(self.con, DAYS[0]))

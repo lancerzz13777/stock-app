@@ -192,6 +192,7 @@ agents:
 # Live paper fund (quant Phase 5): re-balanced to the quant engine's picks every ~21 trading days, valued every evening
 fund:
   enabled: true                # paper money only - never a real order
+  server: lancerzz@192.168.1.9 # where the bot runs; the PC sends it the monthly ranking (push-plan.bat)
   capital: 1000000             # starting paper money (Rs): 10 lakh, so whole-share rounding over 25 stocks stays small
 
 # Chat advisor - FREE Google Gemini with live Google Search (key from aistudio.google.com/apikey, no card)

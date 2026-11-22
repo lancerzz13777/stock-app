@@ -8,11 +8,17 @@ Alpha decay check: at each rebalance the full ranking of every eligible stock is
 real returns are known, so the LIVE information coefficient (IC) can be compared with the backtest's. If live IC
 stays near zero while the backtest said ~0.06, the edge has gone (or never existed).
 
+Where the ranking runs: the quant engine needs more memory than the 1.8 GB laptop server has, so the PC ranks
+(`python main.py push-plan`, scheduled weekly) and sends a small "plan" (today's ranking + how to build the
+portfolio) to the server. The server only trades the plan; it never runs the engine itself.
+
 Fills: at that evening's official NSE close, with every delivery charge. shortcut: a real investor would
 buy at the next morning's price, so the fund is slightly flattered; switch to next-day fills if it matters.
 """
 import json
 import math
+import subprocess
+import sys
 
 import pandas as pd
 
@@ -58,13 +64,29 @@ def due(con, day: str) -> bool:
     return last is None or (last in days and day in days and days.index(day) - days.index(last) >= quant.HORIZON)
 
 
-def rebalance(con, cfg: dict, r: dict, day: str) -> dict:
-    """Moves the paper fund to the quant engine's target. Returns what was sold and bought."""
+PLAN_MAX_AGE_DAYS = 10  # a plan ranked more than this many days before the re-balance is too old to trade
+
+
+def make_plan(r: dict) -> dict:
+    """The small, JSON-safe part of a quant.research() result the fund needs (about 100 KB)."""
+    num = lambda x: None if x is None or x != x else float(x)
+    return {"at": pd.Timestamp.now().isoformat(timespec="seconds"), "as_of": r["as_of"], "picks": r["picks"],
+            "latest": {s: float(v) for s, v in r["latest"].items()},
+            "vol": {s: float(v) for s, v in r["vol_latest"].dropna().items()},
+            "sectors": {s: r["sectors"][s] for s in r["latest"].index if s in r["sectors"]}, "spec": r["spec"],
+            "backtest": {"ic": num((r["learned_test"] if r["use_learned"] else r["combo_test"])["ic"]),
+                         "learning_mix": bool(r["use_learned"]), "variant": r["best"],
+                         "test_cagr": num(r["port"]["test"].get("cagr")), "dsr": num(r["dsr"])}}
+
+
+def rebalance(con, cfg: dict, plan: dict, day: str) -> dict:
+    """Moves the paper fund to the plan's target. Returns what was sold and bought."""
     ch, held = cfg["charges"], _positions(con)
     px = _last_closes(con, day)
-    sp = r["spec"]
-    w = quant.target(r["latest"], held, sp["n"], cfg["lab"]["hold_buffer"],
-                     r["vol_latest"] if sp["calmer"] else None, r["sectors"], sp["per_sector"])
+    sp = plan["spec"]
+    latest = pd.Series(plan["latest"], dtype=float).sort_values(ascending=False)
+    w = quant.target(latest, held, sp["n"], cfg["lab"]["hold_buffer"],
+                     pd.Series(plan["vol"], dtype=float) if sp["calmer"] else None, plan["sectors"], sp["per_sector"])
     cash, sold, bought = _cash(con, cfg), [], []
     for s, (q, cost) in held.items():
         if s not in w.index:
@@ -89,12 +111,10 @@ def rebalance(con, cfg: dict, r: dict, day: str) -> dict:
         con.execute("INSERT INTO fund_trades VALUES (?,?,?,?,?,?)", (day, s, "BUY", q, px[s], fee))
         bought.append(s)
     con.executemany("INSERT OR REPLACE INTO fund_scores VALUES (?,?,?,?)",
-                    [(day, s, float(v), px[s]) for s, v in r["latest"].items() if s in px])
+                    [(day, s, float(v), px[s]) for s, v in latest.items() if s in px])
     set_state(con, "fund_cash", cash)
     set_state(con, "fund_rebalanced", day)
-    set_state(con, "fund_backtest", json.dumps({"ic": (r["learned_test"] if r["use_learned"] else r["combo_test"])["ic"],
-                                                "learning_mix": r["use_learned"], "variant": r["best"],
-                                                "test_cagr": r["port"]["test"].get("cagr"), "dsr": r["dsr"]}))
+    set_state(con, "fund_backtest", json.dumps(plan["backtest"] | {"ranked": plan["as_of"]}))
     con.commit()
     return {"sold": sold, "bought": bought, "kept": [s for s in held if s in w.index]}
 
@@ -148,19 +168,66 @@ def evening(con, cfg: dict, day: str) -> str | None:
     if not cfg.get("fund", {}).get("enabled"):
         return None
     ensure(con)
-    moved = None
+    moved, waiting = None, None
     if due(con, day):
-        r = quant.research(con, cfg)  # ~2 minutes on the laptop, once a month
-        moved = rebalance(con, cfg, r, day)
-        set_state(con, "quant_picks", json.dumps({"at": pd.Timestamp.now().isoformat(), "picks": r["picks"]}))
+        plan = json.loads(get_state(con, "fund_plan") or "null")
+        if plan and plan["as_of"] >= (pd.Timestamp(day) - pd.Timedelta(days=PLAN_MAX_AGE_DAYS)).date().isoformat():
+            moved = rebalance(con, cfg, plan, day)
+        else:
+            waiting = plan["as_of"] if plan else "never"
     mark(con, cfg, day)
     s = summary(con, cfg)
     line = (f"📈 <b>Paper fund</b>: ₹{s['nav']:,.0f} ({s['fund_pct']:+.1f}%)"
             + (f" vs Nifty {s['nifty_pct']:+.1f}%" if s["nifty_pct"] is not None else "") + f" since {s['since']}")
     if s["live_ic"] is not None and s["backtest"]:
         line += f"\nLive IC {s['live_ic']:+.3f} over {s['ic_months']} month(s) vs backtest {s['backtest']['ic']:+.3f}"
+    if waiting:
+        line += (f"\n⏳ Re-balance is due, waiting for fresh picks from the PC (last ranked: {waiting}). "
+                 "They come when the PC is on in the evening; or run push-plan.bat on the PC.")
     if moved:
         line = (f"🔄 <b>Paper fund rebalanced</b> ({s['backtest']['variant']})\n"
                 f"Sold: {', '.join(moved['sold']) or 'none'}\nBought: {', '.join(moved['bought']) or 'none'}\n"
                 f"Kept: {len(moved['kept'])}\n" + line)
     return line
+
+
+def _ssh(cfg: dict, cmd: str, data: str | None = None) -> str:
+    host = cfg["fund"]["server"]
+    return subprocess.run(["ssh", "-o", "ConnectTimeout=20", host, f"cd stock-app && .venv/bin/python -m screener.fund {cmd}"],
+                          input=data, capture_output=True, text=True, timeout=300, check=True).stdout.strip()
+
+
+def push(cfg: dict, con, force: bool = False) -> None:
+    """PC side: brings the PC's data up to date, ranks every stock, sends the plan to the server.
+    Skips the work if the server's plan is less than 6 days old (unless force)."""
+    from . import pipeline, pit, ui
+    have = _ssh(cfg, "age")
+    if not force and have != "none" and pd.Timestamp(have) >= pd.Timestamp.now() - pd.Timedelta(days=6):
+        ui.ok(f"The server's plan is fresh (ranked {have}); nothing to do.")
+        return
+    pipeline.update_all(cfg, con)
+    if pit.coverage(con)[1]:
+        ui.info(f"    full history: {pit.fill(con, cfg['lab']['years'])} new day(s)")
+    with ui.console.status("[cyan]Ranking every stock (a few minutes)..."):
+        r = quant.research(con, cfg)
+    plan = make_plan(r)
+    ui.ok(_ssh(cfg, "receive", json.dumps(plan)))
+    ui.info(f"Top {len(plan['picks'])}: {', '.join(plan['picks'])}")
+
+
+def _receive(con) -> str:
+    plan = json.load(sys.stdin)
+    set_state(con, "fund_plan", json.dumps(plan))
+    set_state(con, "quant_picks", json.dumps({"at": plan["at"], "picks": plan["picks"]}))  # the Quant Bot uses these
+    return f"Server got the plan ranked {plan['as_of']} ({len(plan['latest'])} stocks)."
+
+
+if __name__ == "__main__":  # run ON THE SERVER by push(): "age" or "receive" (plan JSON on stdin)
+    from .config import load_config
+    from .db import connect
+    _con = connect(load_config()["data"]["db_path"])
+    if sys.argv[1] == "age":
+        _p = json.loads(get_state(_con, "fund_plan") or "null")
+        print(_p["at"] if _p else "none")
+    elif sys.argv[1] == "receive":
+        print(_receive(_con))

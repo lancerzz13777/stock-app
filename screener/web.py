@@ -6,6 +6,7 @@ Nothing here can change data or place an order.
 """
 import json
 import math
+import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -59,7 +60,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         if u.path == "/api":
-            con = connect(self.server.db_path)
+            for attempt in range(3):  # the bot's busiest minutes (3 PM, 3:31 report) can briefly refuse a new connection
+                try:
+                    con = connect(self.server.db_path)
+                    break
+                except Exception:
+                    if attempt == 2:
+                        self.send_error(503, "Database busy, the page retries in 30 seconds")
+                        return
+                    time.sleep(1)
             try:
                 body = json.dumps(data(con, parse_qs(u.query).get("day", [None])[0], self.server.cfg)).encode()
             finally:
