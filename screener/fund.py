@@ -19,6 +19,7 @@ import json
 import math
 import subprocess
 import sys
+from datetime import date
 
 import pandas as pd
 
@@ -197,10 +198,91 @@ def _ssh(cfg: dict, cmd: str, data: str | None = None) -> str:
                           input=data, capture_output=True, text=True, timeout=300, check=True).stdout.strip()
 
 
+BACKUP_TABLES = ["agent_trades", "fund_positions", "fund_trades", "fund_nav", "fund_scores", "fund_ic", "wallet",
+                 "wallet_positions", "wallet_log", "paper_trades", "intraday_paper", "app_state", "bot_state", "alerts_sent",
+                 "advisor_chat", "fii_dii", "deals", "insider", "events"]  # can't be downloaded again; prices can
+
+
+def backup(con, path) -> int:
+    """Copies the tables that can't be re-downloaded into a small separate SQLite file."""
+    import sqlite3
+    from pathlib import Path
+    Path(path).unlink(missing_ok=True)
+    out, n = sqlite3.connect(path), 0
+    have = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    for t in BACKUP_TABLES:
+        if t in have:
+            df = pd.read_sql_query(f"SELECT * FROM {t}", con)
+            df.to_sql(t, out, index=False)
+            n += len(df)
+    out.commit()
+    out.close()
+    return n
+
+
+def health(con) -> list[str]:
+    """Run ON THE SERVER: what looks wrong with the bot right now (empty list = all fine)."""
+    from .intraday import IST
+    now = pd.Timestamp.now(tz=IST)
+    g = lambda k: (con.execute("SELECT value FROM bot_state WHERE key=?", (k,)).fetchone()
+                   or con.execute("SELECT value FROM app_state WHERE key=?", (k,)).fetchone() or [None])[0]
+    bad = []
+    hb = g("heartbeat")
+    if not hb or pd.Timestamp(hb) < now - pd.Timedelta(minutes=20):
+        bad.append(f"the bot's main loop is not running (last sign of life: {hb or 'never'})")
+    done = g("daily_done")
+    if now.weekday() < 5 and now.hour >= 20 and (not done or done < (now - pd.Timedelta(days=4)).date().isoformat()):
+        bad.append(f"no evening update since {done}")
+    last_cycle = g("agents_last_cycle")
+    if done == now.date().isoformat() and con.execute("SELECT 1 FROM prices WHERE symbol='^NSEI' AND date=?",
+                                                      (done,)).fetchone():
+        if not last_cycle or last_cycle[:10] != done:  # a trading day, and the agents never ran
+            bad.append(f"the trading agents didn't run today (last run {last_cycle})")
+    return bad
+
+
+def check_server(cfg: dict) -> list[str]:
+    """PC side: asks the server how it is; problems (or no answer) go to Telegram."""
+    from . import telegram, ui
+    try:
+        report = json.loads(_ssh(cfg, "health"))
+    except Exception as e:
+        report = [f"the laptop server didn't answer ({type(e).__name__}): is it on and on Wi-Fi?"]
+    if report:
+        telegram.send("🚨 <b>Stock bot needs a look</b>\n" + "\n".join(f"• {tgfmt.esc(x)}" for x in report)
+                      + "\n<i>Checked from your PC.</i>", rich=True)
+        for x in report:
+            ui.warn(x)
+    else:
+        ui.ok("Server health: all fine.")
+    return report
+
+
+def pull_backup(cfg: dict) -> None:
+    """PC side: the server writes a fresh backup; the PC keeps a copy for each of the last 14 days."""
+    from .config import ROOT
+    from . import ui
+    folder = ROOT / "data" / "server-backups"
+    folder.mkdir(parents=True, exist_ok=True)
+    rows = _ssh(cfg, "backup")
+    target = folder / f"server-{date.today().isoformat()}.sqlite"
+    subprocess.run(["scp", "-q", "-o", "ConnectTimeout=20", f"{cfg['fund']['server']}:stock-app/data/backup.sqlite",
+                    str(target)], check=True, timeout=300)
+    for old in sorted(folder.glob("server-*.sqlite"))[:-14]:
+        old.unlink()
+    ui.ok(f"Backup copied to this PC: {target.name} ({rows} rows)")
+
+
 def push(cfg: dict, con, force: bool = False) -> None:
-    """PC side: brings the PC's data up to date, ranks every stock, sends the plan to the server.
-    Skips the work if the server's plan is less than 6 days old (unless force)."""
-    from . import pipeline, pit, ui
+    """PC side, every evening: checks the server is healthy, copies its backup, and (weekly) brings the PC's data
+    up to date, ranks every stock and runs the Strategy Lab on the full history, then sends both to the server.
+    The ranking is skipped if the server's plan is less than 6 days old (unless force)."""
+    from . import lab_ui, pipeline, pit, strategies, ui
+    for step in (check_server, pull_backup):
+        try:
+            step(cfg)
+        except Exception as e:  # one failed step must not stop the others
+            ui.warn(f"{step.__name__}: {type(e).__name__}: {str(e)[:120]}")
     have = _ssh(cfg, "age")
     if not force and have != "none" and pd.Timestamp(have) >= pd.Timestamp.now() - pd.Timedelta(days=6):
         ui.ok(f"The server's plan is fresh (ranked {have}); nothing to do.")
@@ -211,6 +293,9 @@ def push(cfg: dict, con, force: bool = False) -> None:
     with ui.console.status("[cyan]Ranking every stock (a few minutes)..."):
         r = quant.research(con, cfg)
     plan = make_plan(r)
+    with ui.console.status("[cyan]Strategy Lab on the full history (a few minutes)..."):
+        lab_ui.save_champion(con, strategies.run_lab(con, cfg), cfg)
+    plan["lab"] = {k: get_state(con, k) for k in ("lab_champion", "lab_line")}
     ui.ok(_ssh(cfg, "receive", json.dumps(plan)))
     ui.info(f"Top {len(plan['picks'])}: {', '.join(plan['picks'])}")
 
@@ -219,6 +304,9 @@ def _receive(con) -> str:
     plan = json.load(sys.stdin)
     set_state(con, "fund_plan", json.dumps(plan))
     set_state(con, "quant_picks", json.dumps({"at": plan["at"], "picks": plan["picks"]}))  # the Quant Bot uses these
+    for k, v in (plan.get("lab") or {}).items():  # the PC's honest Strategy Lab result (full history)
+        if v:
+            set_state(con, k, v)
     return f"Server got the plan ranked {plan['as_of']} ({len(plan['latest'])} stocks)."
 
 
@@ -231,3 +319,8 @@ if __name__ == "__main__":  # run ON THE SERVER by push(): "age" or "receive" (p
         print(_p["at"] if _p else "none")
     elif sys.argv[1] == "receive":
         print(_receive(_con))
+    elif sys.argv[1] == "health":
+        print(json.dumps(health(_con)))
+    elif sys.argv[1] == "backup":
+        from .config import ROOT
+        print(backup(_con, ROOT / "data" / "backup.sqlite"))

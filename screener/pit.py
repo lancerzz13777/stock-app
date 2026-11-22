@@ -68,8 +68,7 @@ def fill(con, years: int) -> int:
                 con.executemany("INSERT OR REPLACE INTO pit_prices VALUES (?,?,?,?,?,?,?,?)",
                                 df[cols].itertuples(index=False, name=None))
                 added += 1
-                if added % 20 == 0:
-                    con.commit()
+                con.commit()  # per day: the next download can take seconds
             bar.advance(task)
             time.sleep(0.2)
     con.commit()

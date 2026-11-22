@@ -74,6 +74,7 @@ class Bot:
         news._ensure(con)
         self.last_dip_scan = None
         self.last_dt_scan = None
+        self.last_heartbeat = None
         self.last_agents = None
         self.last_wallet_check = None
         wallet.ensure(con, cfg)
@@ -576,7 +577,9 @@ class Bot:
         from .db import get_state
         if self.cfg["lab"].get("auto_rerun", True):
             old = json.loads(get_state(self.con, "lab_champion") or "null")
-            if not old or review_day or self._age_days(old.get("updated")) > 35:
+            # the server can't test on the full history; it keeps the PC's honest result while that is under 35 days old
+            pc_result = old and old.get("full_history") and sys.platform != "win32" and self._age_days(old.get("updated")) <= 35
+            if not pc_result and (not old or review_day or self._age_days(old.get("updated")) > 35):
                 log("Re-running the Strategy Lab on the latest data")
                 out = strategies.run_lab(self.con, self.cfg)
                 lab_ui.save_champion(self.con, out, self.cfg)
@@ -753,6 +756,9 @@ class Bot:
         while True:
             try:
                 now = datetime.now(IST)
+                if self._due(self.last_heartbeat, 5, now):
+                    self.last_heartbeat = now
+                    self.state_set("heartbeat", now.isoformat(timespec="seconds"))
                 if telegram.configured():
                     # Short wait so scheduled jobs are checked often; replies are still instant
                     cmds, offset = telegram.get_commands(offset, wait_seconds=10)

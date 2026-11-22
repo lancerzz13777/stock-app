@@ -254,7 +254,9 @@ def run_lab(con, cfg: dict, progress=None) -> dict:
     """Backtests every strategy (with and without the market filter) + benchmarks, walk-forward."""
     lab = cfg["lab"]
     rf = lab["risk_free_pct"] / 100
-    w = load_wide(con, lab["years"])
+    from . import pit
+    full = pit.coverage(con)[1] >= 240 * lab["years"]  # every NSE stock incl. delisted (PC); else listed today only
+    w = pit.load_wide(con, lab["years"]) if full else load_wide(con, lab["years"])
     nifty = w["close"].pop("^NSEI").dropna()
     for k in ("high", "low", "volume"):
         w[k] = w[k].drop(columns=["^NSEI"], errors="ignore")
@@ -300,7 +302,7 @@ def run_lab(con, cfg: dict, progress=None) -> dict:
     champ = pool.sort_values("is_sharpe", ascending=False).iloc[0].to_dict()
     champ["oos_beat_nifty"] = bool(champ["oos_cagr"] > bench["oos_cagr"])
     best_hindsight = table.sort_values("all_cagr", ascending=False).iloc[0].to_dict()
-    return {"table": table, "bench": bench, "champion": champ, "hindsight": best_hindsight,
+    return {"full_history": full, "table": table, "bench": bench, "champion": champ, "hindsight": best_hindsight,
             "results": results, "nifty_eq": nifty_eq, "features": f, "nifty": nifty,
             "period": (str(eq_dates[0].date()), str(eq_dates[-1].date()))}
 

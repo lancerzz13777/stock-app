@@ -50,8 +50,7 @@ def fill(con) -> int:
             if df is not None:
                 con.executemany("INSERT OR REPLACE INTO delivery VALUES (?, ?, ?)", df.itertuples(index=False, name=None))
                 added += 1
-                if added % 20 == 0:
-                    con.commit()
+                con.commit()  # per day: the next download can take seconds
             bar.advance(task)
             time.sleep(0.2)  # be polite to NSE
     con.commit()

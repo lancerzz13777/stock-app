@@ -80,6 +80,7 @@ def _fetch_loop(con, todo, pause, bar, task):
                     ui.warn(f"Yahoo keeps blocking requests. Got {i - 1 - fails_in_a_row}/{len(todo)}; "
                             "run the update again later - it continues where it stopped.")
                     return
+                con.commit()  # never sleep holding the database: the bot's other jobs would hit "database is locked"
                 ui.warn(f"Yahoo is rate-limiting - waiting 2 minutes ({backoffs}/3)...")
                 time.sleep(120)
                 fails_in_a_row = 0
@@ -101,8 +102,7 @@ def _fetch_loop(con, todo, pause, bar, task):
         cols = ", ".join(record)
         con.execute(f"INSERT OR REPLACE INTO fundamentals ({cols}) VALUES ({', '.join('?' * len(record))})",
                     list(record.values()))
-        if i % 25 == 0:
-            con.commit()
+        con.commit()  # each stock on its own: the next Yahoo call can take seconds
         time.sleep(pause)
 
 

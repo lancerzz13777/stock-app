@@ -630,6 +630,7 @@ def main():
                      "run", "tick", "telegram-test", "menu"):
             sub.add_parser(name)
         sub.add_parser("push-plan").add_argument("--force", action="store_true")
+        sub.add_parser("flows-backfill")
         for name in ("update", "daily", "plan"):
             p = sub.add_parser(name)
             p.add_argument("--limit", type=int)
@@ -647,7 +648,8 @@ def main():
             "paper": lambda: swing_paper(cfg, con), "dips": lambda: show_dips(cfg, con),
             "news": lambda: show_news(cfg, con), "run": lambda: Bot(cfg, con).run(), "tick": lambda: Bot(cfg, con).tick(), "telegram-test": telegram_test,
             "menu": lambda: menu(cfg, con),
-            "push-plan": lambda: __import__("screener.fund").fund.push(cfg, con, args.force), "update": lambda: update(cfg, con, args.limit),
+            "push-plan": lambda: __import__("screener.fund").fund.push(cfg, con, args.force),
+            "flows-backfill": lambda: ui.ok(f"{__import__('screener.flows').flows.backfill_insider(con)} insider trades saved"), "update": lambda: update(cfg, con, args.limit),
             "daily": lambda: swing_daily(cfg, con, args.budget), "plan": lambda: swing_plan(cfg, con, args.budget),
         }[args.cmd]()
     except KeyboardInterrupt:

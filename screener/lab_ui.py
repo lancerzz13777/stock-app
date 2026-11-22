@@ -101,7 +101,7 @@ def save_champion(con, out: dict, cfg) -> None:
         "is_cagr": float(c["is_cagr"]), "oos_cagr": float(c["oos_cagr"]), "max_dd": float(c["all_max_dd"]),
         "nifty_oos": float(b["oos_cagr"]), "beat": bool(c["oos_beat_nifty"]),
         "date": datetime.now().strftime("%d %b %Y"), "updated": datetime.now().isoformat(timespec="seconds"),
-        "split": strategies.split_date(cfg),
+        "split": strategies.split_date(cfg), "full_history": bool(out.get("full_history")),
     }))
     set_state(con, "lab_line", json.dumps({"good": bool(c["oos_beat_nifty"]), "line":
               f"{c['name']}: {c['oos_cagr']:+.1f}%/yr on unseen years vs Nifty {b['oos_cagr']:+.1f}%"}))

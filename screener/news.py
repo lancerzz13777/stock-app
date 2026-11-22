@@ -144,6 +144,7 @@ def fetch_news(con, cfg: dict) -> int:
                  keyword_sentiment(f"{title} {summary}"), "keywords", datetime.now(timezone.utc).isoformat()),
             )
             new += 1
+        con.commit()  # per feed: never hold the database while downloading the next one
     con.commit()
     if cfg["news"].get("ai_tagging"):
         _claude_tag(con, cfg)

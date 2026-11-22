@@ -76,5 +76,43 @@ class Fund(unittest.TestCase):
         self.assertEqual(s["live_ic"], 1.0)
 
 
+class ServerCare(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.con = db.connect(os.path.join(self.dir.name, "t.db"))
+        self.addCleanup(self.con.close)
+
+    def test_backup_keeps_the_tables_that_cant_be_downloaded_again(self):
+        import sqlite3
+        from screener import agents
+        agents.ensure(self.con)
+        self.con.execute("INSERT INTO agent_trades (day, agent, symbol, mode) VALUES ('2026-11-20', 'quant', 'SBIN', 'live')")
+        self.con.execute("INSERT INTO prices VALUES ('SBIN', '2026-11-20', 1, 1, 1, 1, 1)")
+        path = os.path.join(self.dir.name, "b.sqlite")
+        fund.backup(self.con, path)
+        b = sqlite3.connect(path)
+        self.assertEqual(b.execute("SELECT symbol FROM agent_trades").fetchall(), [("SBIN",)])
+        self.assertNotIn("prices", {r[0] for r in b.execute("SELECT name FROM sqlite_master")})  # re-downloadable
+        b.close()
+
+    def test_health_flags_a_dead_main_loop(self):
+        from screener.intraday import IST
+        self.con.execute("CREATE TABLE IF NOT EXISTS bot_state (key TEXT PRIMARY KEY, value TEXT)")
+        old = (pd.Timestamp.now(tz=IST) - pd.Timedelta(hours=2)).isoformat()
+        self.con.execute("INSERT INTO bot_state VALUES ('heartbeat', ?)", (old,))
+        self.assertTrue(any("main loop" in x for x in fund.health(self.con)))
+        self.con.execute("UPDATE bot_state SET value=? WHERE key='heartbeat'", (pd.Timestamp.now(tz=IST).isoformat(),))
+        self.assertFalse(any("main loop" in x for x in fund.health(self.con)))
+
+    def test_nse_dates_and_numbers_are_read(self):
+        from screener import flows
+        self.assertEqual(flows._day("20-NOV-2026"), "2026-11-20")
+        self.assertEqual(flows._day("04-Oct-2025 18:13"), "2025-10-04")
+        self.assertIsNone(flows._day("-"))
+        self.assertEqual(flows._num("1,234.5"), 1234.5)
+        self.assertIsNone(flows._num("-"))
+
+
 if __name__ == "__main__":
     unittest.main()

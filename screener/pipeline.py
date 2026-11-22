@@ -32,6 +32,9 @@ def update_all(cfg, con, limit=None):
 
     from . import delivery
     ui.info(f"    delivery %: {delivery.fill(con)} new trading day(s)")
+    from . import flows
+    got = flows.collect(con)
+    ui.info("    who is buying: " + ", ".join(f"{k} {v if v >= 0 else 'failed'}" for k, v in got.items()))
 
     ui.console.print("[bold]3/4[/] Fundamentals (only stocks passing the price/liquidity filters)")
     snap = scoring.build_snapshots(prices.load_recent_prices(con))

@@ -140,8 +140,9 @@ def dips(res: dict) -> str:
 # ------------------------------------------------------------------ picks
 def picks(c: dict, cp: dict, holds_keep: list, holds_sell: list, affordable: list[dict], review: bool) -> str:
     title = "📅 <b>MONTH-END REVIEW</b>" if review else "📊 <b>STRATEGY PICKS</b>"
+    honest = "" if c.get("full_history") else " · ⚠️ listed stocks only, so flattered (bust stocks left out)"
     out = [f"{title}", f"<i>{esc(c['name'])} · tested {c['oos_cagr']:+.1f}%/yr on unseen years "
-                       f"(Nifty {c['nifty_oos']:+.1f}%) · falls up to {c['max_dd']:.0f}%</i>", LINE]
+                       f"(Nifty {c['nifty_oos']:+.1f}%) · falls up to {c['max_dd']:.0f}%{honest}</i>", LINE]
     if not cp["invest"]:
         out.append("💤 <b>Stay in CASH this month</b>\n<i>The market is in a downtrend (Nifty below its 200-day average).</i>")
         if holds_sell:
