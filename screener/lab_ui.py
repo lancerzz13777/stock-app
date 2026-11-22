@@ -270,6 +270,33 @@ def quant_report(cfg, con):
     ui.info(f"Saved: {path}")
 
 
+# ======================================================================== Pairs trading (research only)
+def pairs_report(cfg, con):
+    from . import pairs
+    ui.title("Pairs trading research", "two stocks that move together drift apart -> buy one, short the other")
+    with console.status("[cyan]Testing pairs walk-forward over 10 years (a few minutes)..."):
+        p = pairs.research(con, cfg)
+    t = p["table"]
+    ui.info(f"Monthly results {p['period'][0]} to {p['period'][1]}; choosing years up to {p['split']}, then unseen. "
+            f"Top {pairs.TOP_LIQUID} most-traded stocks (stand-in for F&O), {pairs.N_PAIRS} pairs per set, "
+            f"{pairs.FUTURES_COST_PCT}% cost per leg per side.")
+    rows = [[Text(("★ " if name == p["best"] else "  ") + name, style="bold" if name == p["best"] else ""),
+             _pct(r["train_cagr"]), _pct(r["test_cagr"]), Text(f"{r['test_max_dd']:.0f}%", style=ui.RED),
+             f"{r['test_sharpe']:.2f}", f"{r['test_t']:+.1f}", f"{r['nifty_corr']:+.2f}", f"{r['trades_per_year']:.0f}",
+             f"{r['won']:.0f}%", f"{r['hold_days']:.0f}"] for name, r in t.iterrows()]
+    console.print(ui.table([("Variant", "left"), ("Choosing yrs /yr", "right"), ("Unseen yrs /yr", "right"),
+                            ("Worst fall", "right"), ("Sharpe", "right"), ("t-stat", "right"), ("Moves with Nifty", "right"),
+                            ("Trades /yr", "right"), ("Won", "right"), ("Days held", "right")], rows,
+                           caption=f"★ = best Sharpe in the choosing years. Sharpe counts the {p['rf']}% a liquid fund pays, "
+                                   "so beating cash is the bar. t-stat 2+ = probably not luck."))
+    b = t.loc[p["best"]]
+    verdict = ("✅ an edge worth paper-trading in F&O" if b["test_sharpe"] > 0.5 and b["test_t"] >= 2
+               else "❌ no edge after costs on unseen years: don't build it" if b["test_cagr"] <= p["rf"]
+               else "⚠️ beats cash but not reliably: not worth the F&O risk yet")
+    console.print(f"\nVerdict: [bold]{verdict}[/]")
+    ui.info(f"Research only, nothing traded. History used: {p['history']}.")
+
+
 # ======================================================================== Trading agents
 def agents_backtest(cfg, con):
     from . import agents

@@ -70,5 +70,25 @@ class Delivery(unittest.TestCase):
         self.assertEqual(df.values.tolist(), [["SBIN", "2026-11-19", 41.57]])
 
 
+class Pairs(unittest.TestCase):
+    def test_a_gap_that_closes_makes_money_and_costs_are_paid(self):
+        from screener import pairs
+        idx = pd.bdate_range("2024-01-01", periods=6)
+        c = pd.DataFrame({"A": [100, 110, 112, 105, 100, 100.0], "B": [100, 100, 100, 100, 101, 101.0]}, index=idx)
+        pnl, trades = pairs.trade(c, "A", "B", sd=0.04, open_z=2)   # A runs 10% ahead: short A, buy B
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(trades[0]["days"], 3)                       # opened day 1, lines cross on day 4
+        gain = (110 - 100) / 110 + (101 - 100) / 100                 # A fell back, B rose
+        self.assertAlmostEqual(trades[0]["pnl"], gain - 4 * pairs.FUTURES_COST_PCT / 100)
+
+    def test_closest_lines_are_paired_within_a_sector(self):
+        from screener import pairs
+        x, wiggle = np.linspace(1, 2, 50), np.sin(np.arange(50))
+        c = pd.DataFrame({"A": x, "B": x + 0.05 * wiggle, "C": x[::-1], "D": x + 0.005 * wiggle},
+                         index=pd.bdate_range("2024-01-01", periods=50))
+        self.assertEqual(pairs.choose(c, 1, None)[0][:2], ("A", "D"))
+        self.assertEqual(pairs.choose(c, 1, {"A": "bank", "B": "bank", "C": "it", "D": "it"})[0][:2], ("A", "B"))
+
+
 if __name__ == "__main__":
     unittest.main()

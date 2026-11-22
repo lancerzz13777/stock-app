@@ -63,6 +63,12 @@
 - 22 Nov 2026: ranking moved to the PC. On the 1.8 GB laptop the quant engine ran out of memory, slowed to a crawl and never finished, so the fund made no buy on 20 Nov. The PC now ranks using the full history including delisted stocks, and sends a small plan to the laptop over ssh (`push-plan`, daily 8:30 PM task that skips if the plan is under 6 days old). The laptop only trades the plan; a plan more than 10 days old isn't traded. The first buy was made on 20 Nov closing prices: 25 stocks, 3% cash.
 - Where to see it: a Telegram line in each evening report, a message at each re-balance, and a section on the dashboard.
 
+## Phase 6: pairs trading research (22 Nov 2026)
+- Method: the distance method of Gatev, Goetzmann & Rouwenhorst (2006). A year picks the 20 closest pairs among the top 200 most-traded stocks (a stand-in for F&O). The next 6 months trade the gap: open at 2 sd (or 1.5 sd), close when the lines cross. A new set starts every month. Walk-forward only, with delisted stocks included, at 0.07% cost per leg per side.
+- Result on the unseen years: the best version (same sector, 1.5 sd) made +0.8%/yr against 6.5% from a liquid fund. Sharpe was negative and the t-stat 0.5. It won 65% of trades, but the wins were tiny.
+- Even with zero costs it made only +1.7%/yr, so the costs aren't what kills it: the signal itself is gone on NSE's liquid stocks. That matches later studies showing pairs profits fading as markets got faster.
+- Decision: don't build F&O pairs paper trading. `python main.py pairs` re-runs the test if the data or the idea changes (for example, cointegration-based pairs).
+
 ## Roadmap
 
 | Phase | What | Status |
@@ -72,4 +78,4 @@
 | 3 | India-specific free data: NSE delivery % (from Nov 2019), 2 alphas, updated every evening | done |
 | 4 | Survivorship-free history: 10 years of NSE files incl. 1,000+ delisted stocks, ETFs removed, split-adjusted (`python main.py history`, PC only) | done |
 | 5 | Live paper fund: the bot rebalances a paper portfolio monthly; live vs backtest IC tracked to catch alpha decay | started 20 Nov 2026 |
-| 6 | Pairs / stat-arb on sector pairs (needs shorting, so F&O paper only) | |
+| 6 | Pairs / stat-arb on sector pairs (needs shorting, so F&O paper only) | researched 22 Nov 2026: no edge, not built |

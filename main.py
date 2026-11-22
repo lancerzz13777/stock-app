@@ -626,7 +626,7 @@ def main():
             return menu(cfg, con)
         ap = argparse.ArgumentParser(description="Personal NSE stock screener")
         sub = ap.add_subparsers(dest="cmd", required=True)
-        for name in ("lab", "quant", "agents", "agents-backtest", "web", "history", "picks", "check", "live-setup", "desk", "dt-watch", "dt-scan", "dt-backtest", "dt-paper", "scan", "backtest", "paper", "dips", "news",
+        for name in ("lab", "quant", "pairs", "agents", "agents-backtest", "web", "history", "picks", "check", "live-setup", "desk", "dt-watch", "dt-scan", "dt-backtest", "dt-paper", "scan", "backtest", "paper", "dips", "news",
                      "run", "tick", "telegram-test", "menu"):
             sub.add_parser(name)
         sub.add_parser("push-plan").add_argument("--force", action="store_true")
@@ -637,6 +637,7 @@ def main():
         args = ap.parse_args()
         {
             "lab": lambda: lab_ui.lab(cfg, con), "quant": lambda: lab_ui.quant_report(cfg, con),
+            "pairs": lambda: lab_ui.pairs_report(cfg, con),
             "agents": lambda: agents.run(cfg, con), "web": lambda: web_dashboard(cfg),
             "history": lambda: ui.ok(f"{__import__('screener.pit').pit.fill(con, cfg['lab']['years'])} new day(s) of "
                                      "full NSE history (delisted stocks included)"), "agents-backtest": lambda: lab_ui.agents_backtest(cfg, con), "picks": lambda: lab_ui.picks(cfg, con),

@@ -96,6 +96,9 @@ Each evening the bot values a ₹10 lakh **paper** portfolio built from the quan
 
 Limit: with weeks of data, a "pattern" can still be chance. The two-halves check lowers that risk but doesn't remove it.
 
+## Pairs trading research (`python main.py pairs`)
+Tests the classic pairs trade (buy the stock that fell behind its partner, short the one that ran ahead) on 10 years of history, walk-forward with costs. Result as of 22 Nov 2026: no edge. It made +0.8%/yr on the unseen years against 6.5% from a liquid fund, so it isn't built for trading. Research only.
+
 ## Trading agents (menu → A1 backtest, A2 run; or double-click `agents.bat`)
 
 Four robot day-traders, each with its own **paper** account of ₹10,000 a day. They never use more than that and there's no leverage. Each trade has a stop-loss, and everything closes by 3:15 PM:
