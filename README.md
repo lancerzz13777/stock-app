@@ -79,7 +79,8 @@ Takes about 2 minutes. Research only: it never trades.
 Each evening the bot values a ₹10 lakh **paper** portfolio built from the quant engine's picks. Every 21 trading days it re-balances to fresh picks. You'll see one line in the evening report, a message at each re-balance, and a "Live paper fund" section on the dashboard.
 - Fills happen at the evening's NSE close and include every charge. No real orders are ever placed.
 - **Live IC** measures whether last month's ranking actually predicted the returns that followed. The backtest says about 0.06. If live IC sits near 0 for 6 months or more, the edge has faded.
-- Settings: `fund:` in `config.yaml` (`enabled`, `capital`).
+- **The ranking runs on the PC, not the laptop.** The laptop has too little memory to rank about 2,300 stocks. Every evening at 8:30 PM, if the PC is on, it updates its data, ranks every stock and sends the result to the laptop (Windows task "StockApp push-plan", log in `data\push-plan.log`). It skips the work if the laptop's ranking is less than 6 days old. Double-click `push-plan.bat` to run it now. If the PC stays off and a re-balance falls due, the evening report says so and the fund waits.
+- Settings: `fund:` in `config.yaml` (`enabled`, `capital`, `server`).
 
 ## How it learns from its mistakes
 **Trading agents (every evening at 3:31):**

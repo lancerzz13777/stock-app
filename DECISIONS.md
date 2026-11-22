@@ -60,7 +60,7 @@
 - Fills at that evening's NSE close with every delivery charge. This flatters it slightly: a real buyer gets the next morning's price.
 - Stocks it keeps are not resized, which matches the backtest and saves charges. Expensive shares round down to whole shares, and the leftover stays as cash.
 - Alpha decay check: each re-balance stores the full ranking. A month later its live IC is measured and shown next to the backtest IC (about 0.06). If live IC stays near 0 for 6+ months, the edge has faded.
-- The laptop ranks on stocks listed today (it can't hold the full NSE history), so its picks can differ slightly from the PC's research run.
+- 22 Nov 2026: ranking moved to the PC. On the 1.8 GB laptop the quant engine ran out of memory, slowed to a crawl and never finished, so the fund made no buy on 20 Nov. The PC now ranks using the full history including delisted stocks, and sends a small plan to the laptop over ssh (`push-plan`, daily 8:30 PM task that skips if the plan is under 6 days old). The laptop only trades the plan; a plan more than 10 days old isn't traded. The first buy was made on 20 Nov closing prices: 25 stocks, 3% cash.
 - Where to see it: a Telegram line in each evening report, a message at each re-balance, and a section on the dashboard.
 
 ## Roadmap
