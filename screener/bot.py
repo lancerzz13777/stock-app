@@ -580,6 +580,12 @@ class Bot:
         fund_msg = fund.evening(self.con, self.cfg, today)  # values the paper fund (and re-balances when due)
         if fund_msg:
             self.say(fund_msg, rich=True)
+        # shortcut: Fridays only, so a week ending on a Thursday holiday gets no scorecard; fine for now
+        if datetime.fromisoformat(today).weekday() == 4 and self.state_get("scorecard_sent") != today:
+            card = fund.scorecard(self.con, self.cfg, today)
+            if card:
+                self.say(card, rich=True)
+                self.state_set("scorecard_sent", today)
 
     # --- keeping the strategies up to date --------------------------------
     @staticmethod

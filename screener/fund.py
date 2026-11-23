@@ -50,6 +50,13 @@ def _last_closes(con, day: str, since: str | None = None) -> dict[str, float]:
         (since, day))}
 
 
+def _opens(con, day: str) -> dict[str, float]:
+    """Each stock's opening price on `day`, falling back to its last close (no trade that day)."""
+    px = _last_closes(con, day)
+    px.update({s: o for s, o in con.execute("SELECT symbol, open FROM prices WHERE date=? AND open > 0", (day,))})
+    return px
+
+
 def _cash(con, cfg) -> float:
     c = get_state(con, "fund_cash")
     return float(c) if c is not None else float(cfg["fund"]["capital"])
@@ -80,10 +87,11 @@ def make_plan(r: dict) -> dict:
                          "test_cagr": num(r["port"]["test"].get("cagr")), "dsr": num(r["dsr"])}}
 
 
-def rebalance(con, cfg: dict, plan: dict, day: str) -> dict:
-    """Moves the paper fund to the plan's target. Returns what was sold and bought."""
+def rebalance(con, cfg: dict, plan: dict, day: str, at_open: bool = False) -> dict:
+    """Moves the paper fund to the plan's target. Returns what was sold and bought.
+    at_open: trade at `day`'s opening prices (the live fund: decided one evening, traded next morning)."""
     ch, held = cfg["charges"], _positions(con)
-    px = _last_closes(con, day)
+    px = _opens(con, day) if at_open else _last_closes(con, day)
     sp = plan["spec"]
     latest = pd.Series(plan["latest"], dtype=float).sort_values(ascending=False)
     w = quant.target(latest, held, sp["n"], cfg["lab"]["hold_buffer"],
@@ -169,11 +177,18 @@ def evening(con, cfg: dict, day: str) -> str | None:
     if not cfg.get("fund", {}).get("enabled"):
         return None
     ensure(con)
-    moved, waiting = None, None
-    if due(con, day):
+    moved, waiting, decided = None, None, None
+    pending = json.loads(get_state(con, "fund_pending") or "null")
+    trades_today = con.execute("SELECT 1 FROM prices WHERE symbol='^NSEI' AND date=?", (day,)).fetchone()
+    if pending and day > pending["decided"] and trades_today:
+        # decided last evening, traded at this morning's open: what a real investor would get, not the close they saw
+        moved = rebalance(con, cfg, pending["plan"], day, at_open=True)
+        set_state(con, "fund_pending", "null")
+    elif not pending and due(con, day):
         plan = json.loads(get_state(con, "fund_plan") or "null")
         if plan and plan["as_of"] >= (pd.Timestamp(day) - pd.Timedelta(days=PLAN_MAX_AGE_DAYS)).date().isoformat():
-            moved = rebalance(con, cfg, plan, day)
+            set_state(con, "fund_pending", json.dumps({"decided": day, "plan": plan}))
+            decided = day
         else:
             waiting = plan["as_of"] if plan else "never"
     mark(con, cfg, day)
@@ -182,14 +197,58 @@ def evening(con, cfg: dict, day: str) -> str | None:
             + (f" vs Nifty {s['nifty_pct']:+.1f}%" if s["nifty_pct"] is not None else "") + f" since {s['since']}")
     if s["live_ic"] is not None and s["backtest"]:
         line += f"\nLive IC {s['live_ic']:+.3f} over {s['ic_months']} month(s) vs backtest {s['backtest']['ic']:+.3f}"
+    if decided:
+        line += "\n🔄 Re-balance due: the fund trades at tomorrow's opening prices."
     if waiting:
         line += (f"\n⏳ Re-balance is due, waiting for fresh picks from the PC (last ranked: {waiting}). "
                  "They come when the PC is on in the evening; or run push-plan.bat on the PC.")
     if moved:
-        line = (f"🔄 <b>Paper fund rebalanced</b> ({s['backtest']['variant']})\n"
+        line = (f"🔄 <b>Paper fund rebalanced</b> at today's opening prices ({s['backtest']['variant']})\n"
                 f"Sold: {', '.join(moved['sold']) or 'none'}\nBought: {', '.join(moved['bought']) or 'none'}\n"
                 f"Kept: {len(moved['kept'])}\n" + line)
     return line
+
+
+def scorecard(con, cfg: dict, day: str) -> str | None:
+    """Friday's weekly scorecard: the paper fund vs the Nifty this week and since the start, its best and worst
+    holdings this week, live IC, and the day-trading agents' week. None if there is nothing to report yet."""
+    from . import agents
+    ensure(con)
+    week0 = (pd.Timestamp(day) - pd.Timedelta(days=pd.Timestamp(day).weekday())).date().isoformat()  # Monday
+    nav = pd.read_sql_query("SELECT date, nav, nifty FROM fund_nav WHERE date <= ? ORDER BY date", con, params=(day,))
+    if nav.empty:
+        return None
+    before = nav[nav["date"] < week0]
+    base = before.iloc[-1] if len(before) else nav.iloc[0]  # first week: from the first valuation
+    now = nav.iloc[-1]
+    pct = lambda a, b: (a / b - 1) * 100 if a and b else None
+    f_wk, n_wk = pct(now["nav"], base["nav"]), pct(now["nifty"], base["nifty"])
+    s = summary(con, cfg)
+    out = ["📋 <b>Weekly scorecard</b> · week of " + pd.Timestamp(week0).strftime("%d %b %Y"),
+           f"📈 Paper fund this week: <b>{f_wk:+.2f}%</b>" + (f" vs Nifty {n_wk:+.2f}%" if n_wk is not None else "")
+           + (f" ({'ahead' if f_wk >= n_wk else 'behind'} by {abs(f_wk - n_wk):.2f}%)" if n_wk is not None else ""),
+           f"Since {s['since']}: {s['fund_pct']:+.2f}%" + (f" vs Nifty {s['nifty_pct']:+.2f}%" if s["nifty_pct"] is not None else "")
+           + f" · value ₹{s['nav']:,.0f}"]
+    then, px = _last_closes(con, base["date"]), _last_closes(con, day)
+    new_this_week = (get_state(con, "fund_rebalanced") or "") >= week0  # bought this week: measure from what it cost
+    moves = sorted(((px[x] / (c if new_this_week else then.get(x, c)) - 1) * 100, x)
+                   for x, (q, c) in _positions(con).items() if x in px)
+    if moves:
+        out.append("Best: " + ", ".join(f"{x} {m:+.1f}%" for m, x in moves[::-1][:2])
+                   + " · Worst: " + ", ".join(f"{x} {m:+.1f}%" for m, x in moves[:2]))
+    if s["live_ic"] is not None and s["backtest"]:
+        out.append(f"Live IC {s['live_ic']:+.3f} over {s['ic_months']} month(s) vs backtest {s['backtest']['ic']:+.3f}"
+                   + (" ✅" if s["live_ic"] > 0 else " ⚠️ (watch: near zero for 6+ months means the edge faded)"))
+    wk = pd.read_sql_query("SELECT agent, pnl FROM agent_trades WHERE mode='live' AND pnl IS NOT NULL AND day >= ? AND day <= ?",
+                           con, params=(week0, day))
+    if len(wk):
+        g = wk.groupby("agent")["pnl"].agg(["sum", "count", lambda p: (p > 0).mean() * 100])
+        g.columns = ["pnl", "n", "won"]
+        out.append(f"🤖 Day-trading agents this week: <b>₹{wk['pnl'].sum():+,.2f}</b> after charges")
+        out += [f"• {agents.BY_KEY[k].name if k in agents.BY_KEY else k}: ₹{r.pnl:+,.2f} ({int(r.n)} trades, {r.won:.0f}% won)"
+                for k, r in g.sort_values("pnl", ascending=False).iterrows()]
+    out.append("<i>Paper money only. One week is mostly noise: judge after months, not days.</i>")
+    return "\n".join(out)
 
 
 def _ssh(cfg: dict, cmd: str, data: str | None = None) -> str:

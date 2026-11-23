@@ -45,8 +45,16 @@ class Fund(unittest.TestCase):
         self.assertIn("waiting for fresh picks", msg)
         self.assertEqual(fund._positions(self.con), {})
         set_state(self.con, "fund_plan", json.dumps(self.research(STOCKS[::-1])))
-        self.assertIn("rebalanced", fund.evening(self.con, self.cfg, DAYS[1]))
-        self.assertEqual(len(fund._positions(self.con)), 10)
+        self.assertIn("tomorrow's opening prices", fund.evening(self.con, self.cfg, DAYS[1]))  # decided, not traded
+        self.assertEqual(fund._positions(self.con), {})
+        self.con.execute("UPDATE prices SET open = close * 1.01 WHERE date=?", (DAYS[2],))   # a gap up overnight
+        self.assertIn("rebalanced", fund.evening(self.con, self.cfg, DAYS[2]))
+        held = fund._positions(self.con)
+        self.assertEqual(len(held), 10)
+        opened = dict(self.con.execute("SELECT symbol, open FROM prices WHERE date=?", (DAYS[2],)).fetchall())
+        self.assertTrue(all(abs(cost - opened[s]) < 1e-9 for s, (q, cost) in held.items()))  # paid the open, not the close
+        self.assertNotIn("rebalanced", fund.evening(self.con, self.cfg, DAYS[3]))  # traded once, not every evening
+        self.assertEqual(fund._positions(self.con), held)
 
     def test_buys_the_top_ten_pays_charges_and_waits_a_month(self):
         self.assertTrue(fund.due(self.con, DAYS[0]))
@@ -60,6 +68,24 @@ class Fund(unittest.TestCase):
         self.assertGreaterEqual(fund._cash(self.con, self.cfg), 0)
         self.assertFalse(fund.due(self.con, DAYS[20]))
         self.assertTrue(fund.due(self.con, DAYS[21]))
+
+    def test_weekly_scorecard_compares_the_week_with_the_nifty(self):
+        self.assertIsNone(fund.scorecard(self.con, self.cfg, DAYS[4]))          # nothing valued yet
+        fund.rebalance(self.con, self.cfg, self.research(STOCKS[::-1]), DAYS[0])
+        from screener import agents
+        agents.ensure(self.con)
+        fri, last_fri = DAYS[11], DAYS[6]                                      # Fri 16 Jan, Fri 9 Jan
+        for d in DAYS[:12]:
+            fund.mark(self.con, self.cfg, d)
+        self.con.execute("INSERT INTO agent_trades (day, agent, symbol, mode, pnl) VALUES (?, 'breakout', 'X', 'live', 12.5)",
+                         (fri,))
+        self.con.execute("INSERT INTO agent_trades (day, agent, symbol, mode, pnl) VALUES (?, 'quant', 'Y', 'live', -3)",
+                         (last_fri,))                                         # last week: left out
+        card = fund.scorecard(self.con, self.cfg, fri)
+        navs = dict(self.con.execute("SELECT date, nav FROM fund_nav").fetchall())
+        self.assertIn(f"this week: <b>{(navs[fri] / navs[last_fri] - 1) * 100:+.2f}%</b> vs Nifty", card)  # from last Friday
+        self.assertIn("Breakout Bot: ₹+12.50 (1 trades, 100% won)", card)
+        self.assertNotIn("Quant Bot", card)
 
     def test_live_ic_is_measured_a_month_later_and_dropped_stocks_are_sold(self):
         fund.rebalance(self.con, self.cfg, self.research(STOCKS[::-1]), DAYS[0])
