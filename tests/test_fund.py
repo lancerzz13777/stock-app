@@ -116,6 +116,18 @@ class ServerCare(unittest.TestCase):
         self.assertEqual(web.allowed(net, {"k": [k]}, k), (True, True))           # Telegram link: sets the cookie
         self.assertEqual(web.allowed({**net, "Cookie": f"a=1; k={k}"}, {}, k), (True, False))
 
+    def test_dashboard_script_has_no_syntax_error(self):
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node not installed")
+        s = (Path(__file__).resolve().parent.parent / "screener" / "dashboard.html").read_text(encoding="utf-8")
+        js = os.path.join(self.dir.name, "d.js")
+        Path(js).write_text(s[s.rindex("<script>") + 8:s.rindex("</script>")], encoding="utf-8")
+        r = subprocess.run([node, "--check", js], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)  # one stray quote blanks the whole page
+
     def test_nse_dates_and_numbers_are_read(self):
         from screener import flows
         self.assertEqual(flows._day("20-NOV-2026"), "2026-11-20")
