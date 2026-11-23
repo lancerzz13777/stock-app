@@ -90,6 +90,11 @@
 - Unseen years (Nov 2022 to Feb 2026): +0.13% a month (t 0.4) for promoters/directors, and +0.12% for buy counts. The all-insiders version showed +0.40% (t 1.4): not significant, and choosing it after seeing that would be peeking. Rank IC was about 0 in the test.
 - Decision: not added to the fund. The effect faded, much like pairs trading did. NSE's insider feed has also been empty since spring 2026, so it couldn't run live anyway. `python research/insider_signal.py` re-runs the test if the data comes back.
 
+## Research paused (23 Nov 2026)
+- No new phases for now. Three ideas tested since Phase 5 (pairs, sector-relative ranking, insider buying) didn't beat the current fund, and every extra idea tried makes the kept one's luck check weaker.
+- The fund and Breakout Bot run unchanged, with a check every Friday. Checkpoints: Breakout after about 3 months (100+ trades; Feb 2027), the fund's live IC at 6 months (May 2027) and 12 months (Nov 2027). Only after 12 months, consider a small real-money trial.
+- Next research when there's enough history: FII/DII flows and bulk/block deals, collected daily since 22 Nov 2026 (about Nov 2027).
+
 ## Roadmap
 
 | Phase | What | Status |
