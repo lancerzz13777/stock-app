@@ -57,7 +57,7 @@ footer{color:var(--dim);font-size:12px;margin:18px 0 6px;text-align:center}
   <header>
     <div>
       <h1>Agents Trading Desk</h1>
-      <div class="sub">4 robot day-traders · ₹10,000 paper money each per day · all after brokerage &amp; taxes</div>
+      <div class="sub">Robot day-traders · paper money only (Breakout ₹30,000 a day, Quant ₹10,000) · all after brokerage &amp; taxes</div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <span class="pill"><span id="dot" class="dot"></span><span id="status">Loading…</span></span>
@@ -149,7 +149,7 @@ async function load() {
 }
 
 function render() {
-  const names = Object.fromEntries(D.agents.map(a => [a.key, a.name]));
+  const names = D.names;
   // status
   const last = D.last_cycle ? new Date(D.last_cycle) : null;
   const fresh = last && (Date.now() - last) < 11 * 60e3;
@@ -163,7 +163,7 @@ function render() {
   const closed = D.trades.filter(t => t.pnl != null), open = D.trades.filter(t => t.pnl == null);
   const dayPnl = closed.reduce((s, t) => s + t.pnl, 0), allPnl = D.all_time.reduce((s, a) => s + a.pnl, 0);
   const won = closed.filter(t => t.pnl > 0).length;
-  const inPlay = open.reduce((s, t) => s + t.qty * t.entry, 0), cap = D.cap * D.agents.length;
+  const inPlay = open.reduce((s, t) => s + t.qty * t.entry, 0), cap = D.cap;
   setBig("k-day", dayPnl); $("k-day-sub").textContent = closed.length ? `on ₹${(cap).toLocaleString("en-IN")} of paper money (${(dayPnl / cap * 100).toFixed(2)}%)` : "no closed trades yet";
   setBig("k-all", allPnl); $("k-all-sub").textContent = `${new Set(D.daily.map(d => d.day)).size} trading day(s) so far`;
   $("k-trades").textContent = D.trades.length; $("k-trades-sub").textContent = `${won} won · ${closed.length - won} lost · ${open.length} still open`;

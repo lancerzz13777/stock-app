@@ -37,7 +37,7 @@ class Agents(unittest.TestCase):
         bars = {f"S{i}": two_days([100.0 + 0.01 * k for k in range(75)]) for i in range(6)}
         trades = self.run_agent("quant", bars, picks=bars)
         self.assertEqual(len(trades), 4)                                    # its 4-trade limit
-        self.assertLessEqual(sum(t["qty"] * t["entry"] for t in trades), agents.DAY_CAP)
+        self.assertLessEqual(sum(t["qty"] * t["entry"] for t in trades), agents.BY_KEY["quant"].cap)
         self.assertTrue(all(t["reason"] == "closed 3:15" and t["exit_time"] == "15:15" for t in trades))
 
     def test_stop_loss_sells_on_the_way_down(self):

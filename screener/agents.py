@@ -1,8 +1,8 @@
-"""TRADING AGENTS: four robot day-traders, each with its own PAPER account of Rs 10,000 a day.
+"""TRADING AGENTS: robot day-traders, each with its own PAPER account for the day (Breakout Rs 30,000, Quant Rs 10,000).
 
 Each agent watches the 100 most-traded NSE stocks on 5-minute candles and follows one strategy.
-It buys only with its own Rs 10,000 (no leverage, never more), uses a stop-loss on every trade
-and closes everything by 3:15 PM. The next day starts again from Rs 10,000. P&L is after intraday charges.
+It buys only with its own day's money (no leverage, never more), uses a stop-loss on every trade
+and closes everything by 3:15 PM. The next day starts again from the same amount. P&L is after intraday charges.
 
 The same code runs on past candles (a backtest) and on live candles (the day's trading). An agent
 only ever sees candles that have closed, so a restart just replays the day so far and nothing is lost.
@@ -20,7 +20,6 @@ from . import intraday, ui
 from .db import get_state, set_state
 from .intraday import IST
 
-DAY_CAP = 10_000.0      # Rs each agent may have in trades at once, and its whole day's money
 SLIPPAGE = 0.0005       # 0.05%: we pay a little worse than the candle close on every fill
 SQUARE_OFF = dtime(15, 15)
 
@@ -43,19 +42,22 @@ class Agent:
     max_trades: int
     start: dtime
     end: dtime           # no new trades after this
+    cap: float = 10_000  # Rs it may have in trades at once: its whole day's money
 
 
-AGENTS = [
+AGENTS = [  # trading now
     Agent("breakout", "Breakout Bot", "Buys a break above the 9:15-9:30 range on strong volume, above VWAP; target 2x risk",
-          "the app's opening-range setup, backtested on 60 days", 5000, 2, dtime(9, 30), dtime(13, 30)),
-    Agent("bounce", "Bounce Bot", "Buys a stock down 2%+ today and 1% under VWAP when a strong green candle appears; "
-          "target = back to VWAP", "new: only this app's agent backtest", 3300, 3, dtime(10, 0), dtime(14, 0)),
-    Agent("rider", "Trend Rider", "Buys a stock up 1.5-6% making new day highs on strong volume; "
-          "trailing stop 1% below its best price", "new: only this app's agent backtest", 3300, 3, dtime(10, 0), dtime(13, 0)),
+          "the app's opening-range setup, backtested on 60 days", 10_000, 3, dtime(9, 30), dtime(13, 30), 30_000),
     Agent("quant", "Quant Bot", "At 9:30 buys the quant engine's top picks that trade above VWAP; stop 1.5%, out by 3:15",
           "quant score tested monthly, not intraday", 2500, 4, dtime(9, 30), dtime(10, 0)),
 ]
-BY_KEY = {a.key: a for a in AGENTS}
+RETIRED = [  # 24 Nov 2026: lost money in their own ~80-day backtests; kept so their past trades still show
+    Agent("bounce", "Bounce Bot", "Buys a stock down 2%+ today and 1% under VWAP when a strong green candle appears; "
+          "target = back to VWAP", "retired 24 Nov 2026: lost in its backtest", 3300, 3, dtime(10, 0), dtime(14, 0)),
+    Agent("rider", "Trend Rider", "Buys a stock up 1.5-6% making new day highs on strong volume; "
+          "trailing stop 1% below its best price", "retired 24 Nov 2026: lost in its backtest", 3300, 3, dtime(10, 0), dtime(13, 0)),
+]
+BY_KEY = {a.key: a for a in AGENTS + RETIRED}
 
 
 def ensure(con):
@@ -187,7 +189,7 @@ def run_day(agent: Agent, day_bars: dict[str, pd.DataFrame], picks: set, cfg: di
     avoid = {tuple(x) for x in (lessons or {}).get("avoid", [])}
     c = cfg["charges_intraday"]
     times = sorted({t for df in day_bars.values() for t in df.index})
-    cash, open_, done = DAY_CAP, {}, []
+    cash, open_, done = agent.cap, {}, []
     rows = {s: df.assign(symbol=s) for s, df in day_bars.items()}
     # share of stocks up on the day at each candle: "the market"
     breadth = pd.DataFrame({s: df["chg"] > 0 for s, df in day_bars.items()}).mean(axis=1) if day_bars else pd.Series(dtype=float)
@@ -260,7 +262,7 @@ def leaderboard(con, mode: str, day: str | None = None) -> pd.DataFrame:
     q = "SELECT * FROM agent_trades WHERE mode=? AND pnl IS NOT NULL" + (" AND day=?" if day else "")
     df = pd.read_sql_query(q, con, params=(mode, day) if day else (mode,))
     rows = []
-    for a in AGENTS:
+    for a in AGENTS + [r for r in RETIRED if (df["agent"] == r.key).any()]:
         g = df[df["agent"] == a.key]
         days = g.groupby("day")["pnl"].sum()
         rows.append({"agent": a.name, "key": a.key, "pnl": g["pnl"].sum(), "trades": len(g),
@@ -305,7 +307,7 @@ def _msg_trade(a: Agent, t: dict, opened: bool) -> str:
 
 def board_text(con, day: str) -> str:
     lb = leaderboard(con, "live", day)
-    lines = [f"🏁 <b>Agents' paper results {day}</b> (₹10,000 each, after charges)"]
+    lines = [f"🏁 <b>Agents' paper results {day}</b> (paper, after charges)"]
     for i, r in enumerate(lb.itertuples(), 1):
         lines.append(f"{i}. {r.agent}: <b>₹{r.pnl:+,.2f}</b> ({r.trades} trades"
                      + (f", {r.win_rate:.0f}% won)" if r.trades else ")"))
@@ -381,7 +383,7 @@ def run(cfg: dict, con) -> None:
     picks, last_candle, reported = quant_picks(con, cfg), None, None  # before 9:15, not during the first scan
     ui.ok("Agents running (paper only). They trade 9:30-3:15 on market days; results go to Telegram. Ctrl+C stops.")
     telegram.send("🤖 <b>Trading agents switched on</b> (paper only): " + ", ".join(a.name for a in AGENTS)
-                  + ". ₹10,000 each per day, everything closed by 3:15.", rich=True)
+                  + ". Paper money only, everything closed by 3:15.", rich=True)
     while True:
         now = datetime.now(IST)
         day = now.date().isoformat()

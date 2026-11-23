@@ -300,7 +300,7 @@ def pairs_report(cfg, con):
 # ======================================================================== Trading agents
 def agents_backtest(cfg, con):
     from . import agents
-    ui.title("Trading agents: backtest", "Rs 10,000 a day each, paper, after intraday charges")
+    ui.title("Trading agents: backtest", "paper, after intraday charges")
     lb = agents.backtest(con, cfg)
     rows = [[Text(r["agent"], style="bold"), Text(agents.BY_KEY[r["key"]].idea, style=ui.DIM), ui.money(r["pnl"]),
              str(r["trades"]), f"{r['win_rate']:.0f}%" if r["trades"] else "-",

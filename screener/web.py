@@ -51,9 +51,10 @@ def data(con, day: str | None = None, cfg: dict | None = None) -> dict:
     board = lambda mode, d=None: agents.leaderboard(con, mode, d).to_dict("records")
     return _clean({
         "now": now.isoformat(timespec="seconds"), "market_open": market_is_open(now) and now.weekday() < 5,
-        "last_cycle": get_state(con, "agents_last_cycle"), "day": day, "days": days, "cap": agents.DAY_CAP,
+        "last_cycle": get_state(con, "agents_last_cycle"), "day": day, "days": days, "cap": sum(a.cap for a in agents.AGENTS),
+        "names": {a.key: a.name for a in agents.AGENTS + agents.RETIRED},
         "agents": [{"key": a.key, "name": a.name, "idea": a.idea, "tested": a.tested, "per_trade": a.per_trade,
-                    "max_trades": a.max_trades} for a in agents.AGENTS],
+                    "max_trades": a.max_trades, "cap": a.cap} for a in agents.AGENTS],
         "trades": trades, "daily": daily, "today": board("live", day), "all_time": board("live"),
         "backtest": board("backtest"), "quant": q, "fund": fund.summary(con, cfg) if cfg else None,
         "lessons": json.loads(get_state(con, "agents_lessons") or "null"),
