@@ -577,6 +577,9 @@ class Bot:
             self.cmd_dips()
         if events:
             self.say("📒 <b>Paper trades today</b>\n" + "\n".join(tgfmt.esc(e) for e in events), rich=True)
+        fund_msg = fund.evening(self.con, self.cfg, today)  # values the paper fund (and re-balances when due)
+        if fund_msg:
+            self.say(fund_msg, rich=True)
 
     # --- keeping the strategies up to date --------------------------------
     @staticmethod
