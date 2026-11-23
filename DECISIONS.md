@@ -83,6 +83,13 @@
 - Weekly scorecard every Friday evening on Telegram: the fund vs the Nifty this week and since the start, best and worst holdings, live IC, and the agents' week.
 - Sector-relative ranking tested (each stock ranked only against its own sector) on the full history, delisted stocks included. On the choosing years it lost: Sharpe 0.62 vs 0.77 for market-wide ranking, and test IC 0.057 vs 0.062. It did a little better on the unseen years (+12.0%/yr vs +11.6%), but choosing it for that would be peeking at the test. Not used.
 
+## Phase 8: insider-buying research (23 Nov 2026)
+- Data: about 73,000 NSE insider filings (promoters, directors, key staff, employees), Jan 2019 to early 2026, from `python main.py flows-backfill`. A filing counts only after the date it was made public, so there's no peeking.
+- Test: each month, rank stocks by open-market buying minus selling by their insiders over the last 90 days (scaled by daily turnover). Two other versions: all insiders including employees, and the number of promoter/director buy filings. Same stocks, filters and one-month returns as the quant engine.
+- Choosing years (Apr 2019 to Nov 2022): stocks insiders bought beat the rest by about +1% a month (t ≈ 3).
+- Unseen years (Nov 2022 to Feb 2026): +0.13% a month (t 0.4) for promoters/directors, and +0.12% for buy counts. The all-insiders version showed +0.40% (t 1.4): not significant, and choosing it after seeing that would be peeking. Rank IC was about 0 in the test.
+- Decision: not added to the fund. The effect faded, much like pairs trading did. NSE's insider feed has also been empty since spring 2026, so it couldn't run live anyway. `python research/insider_signal.py` re-runs the test if the data comes back.
+
 ## Roadmap
 
 | Phase | What | Status |
@@ -94,3 +101,4 @@
 | 5 | Live paper fund: the bot rebalances a paper portfolio monthly; live vs backtest IC tracked to catch alpha decay | started 20 Nov 2026 |
 | 6 | Pairs / stat-arb on sector pairs (needs shorting, so F&O paper only) | researched 22 Nov 2026: no edge, not built |
 | 7 | Better quant fund: next-morning prices, weekly scorecard, sector-relative ranking tested | done 23 Nov 2026 (sector-relative not used: lost on the choosing years) |
+| 8 | Insider-buying signal (NSE insider filings since 2019) | researched 23 Nov 2026: worked 2019-22, gone since; not used |
