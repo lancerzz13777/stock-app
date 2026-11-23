@@ -77,6 +77,12 @@
 - Who-is-buying data collected every evening: FII/DII net buying, bulk and block deals, results dates. NSE gives these for the current day only, so collecting daily is the only free way to build a history. They become testable in a year or two.
 - Insider trades: NSE's history works from 2019 up to early 2026. Recent months come back empty from the same API (checked 22 Nov from both machines), so the daily count reads 0. `python main.py flows-backfill` saves the history for testing an insider-buying alpha.
 
+## Agents trimmed, and a better quant fund (23 Nov 2026)
+- Bounce Bot and Trend Rider retired: both lost in their ~80-day backtests (−₹1,629 with 22% of trades won, −₹1,424 with 32% won) and in their first live days. Breakout Bot, the only one that made money in testing (+₹810, 157 trades), gets their money: ₹30,000 a day, up to ₹10,000 a trade, 3 trades. Quant Bot stays at ₹10,000. Their past trades stay on the dashboard.
+- Next-morning prices: a re-balance is decided in the evening and traded at the next trading day's opening price, not the close already seen when deciding. This removes a small flattering bias. The backtest still uses closes, so live and backtest differ slightly.
+- Weekly scorecard every Friday evening on Telegram: the fund vs the Nifty this week and since the start, best and worst holdings, live IC, and the agents' week.
+- Sector-relative ranking tested (each stock ranked only against its own sector) on the full history, delisted stocks included. On the choosing years it lost: Sharpe 0.62 vs 0.77 for market-wide ranking, and test IC 0.057 vs 0.062. It did a little better on the unseen years (+12.0%/yr vs +11.6%), but choosing it for that would be peeking at the test. Not used.
+
 ## Roadmap
 
 | Phase | What | Status |
@@ -87,3 +93,4 @@
 | 4 | Survivorship-free history: 10 years of NSE files incl. 1,000+ delisted stocks, ETFs removed, split-adjusted (`python main.py history`, PC only) | done |
 | 5 | Live paper fund: the bot rebalances a paper portfolio monthly; live vs backtest IC tracked to catch alpha decay | started 20 Nov 2026 |
 | 6 | Pairs / stat-arb on sector pairs (needs shorting, so F&O paper only) | researched 22 Nov 2026: no edge, not built |
+| 7 | Better quant fund: next-morning prices, weekly scorecard, sector-relative ranking tested | done 23 Nov 2026 (sector-relative not used: lost on the choosing years) |

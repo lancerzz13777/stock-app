@@ -92,20 +92,6 @@ def centred_rank(score: pd.DataFrame, mask: pd.DataFrame) -> pd.DataFrame:
     return (score.where(mask).rank(axis=1, pct=True) - 0.5).fillna(0).where(mask)
 
 
-def sector_rank(score: pd.DataFrame, mask: pd.DataFrame, sectors: dict, min_size: int = 5) -> pd.DataFrame:
-    """Like centred_rank, but each stock is ranked only against its own sector (no bet on which sector wins).
-    Stocks with no known sector, or in a sector with fewer than min_size eligible stocks that day, keep the market rank."""
-    out = centred_rank(score, mask)
-    groups = pd.Series({c: sectors.get(c) for c in score.columns}).dropna()
-    for _, cols in groups.groupby(groups):
-        cols = list(cols.index)
-        s = score[cols].where(mask[cols])
-        big = s.notna().sum(axis=1) >= min_size
-        r = s.rank(axis=1, pct=True) - 0.5
-        out.loc[big, cols] = r.loc[big].fillna(0).where(mask.loc[big, cols])
-    return out
-
-
 def target(s: pd.Series, held, n: int, buffer: int, vol_row: pd.Series | None = None,
            sectors: dict | None = None, per_sector: int | None = None) -> pd.Series:
     """Weights of the n stocks to hold, from scores sorted best first: held names still in the top
@@ -164,7 +150,7 @@ def deflated_sharpe(r: pd.Series, trial_sharpes: list[float]) -> float:
     return nd.cdf((sr - sr0) * math.sqrt(len(r) - 1) / den)
 
 
-def research(con, cfg: dict, survivors_only: bool = False, sector_relative: bool = False) -> dict:
+def research(con, cfg: dict, survivors_only: bool = False) -> dict:
     """survivors_only=True forces Yahoo's listed-today history even when the full NSE history is stored."""
     lab = cfg["lab"]
     rf = lab["risk_free_pct"] / 100
@@ -203,7 +189,7 @@ def research(con, cfg: dict, survivors_only: bool = False, sector_relative: bool
     for k, a in al.items():
         ic = ics[k] = rank_ic(a, fwd, mask).reindex(dates)
         tr, te = ic_stats(ic[ic.index <= split]), ic_stats(ic[ic.index > split])
-        ranks[k] = sector_rank(a, mask, sectors) if sector_relative else centred_rank(a, mask)
+        ranks[k] = centred_rank(a, mask)
         top = a.where(mask).rank(axis=1, pct=True) >= 0.8
         excess = (fwd.where(top).mean(axis=1) - fwd.where(mask).mean(axis=1))[test] * 12 * 100
         turnover = 1 - (top & top.shift()).sum(axis=1) / top.sum(axis=1).replace(0, np.nan)
