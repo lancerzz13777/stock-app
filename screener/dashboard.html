@@ -200,7 +200,7 @@ function render() {
   $("bt").innerHTML = D.backtest.filter(a => a.key !== "quant" && a.trades).map(a => `<tr><td>${esc(a.agent)}</td>
       <td class="num ${cls(a.pnl)}"><b>${rs(a.pnl)}</b></td><td class="num">${a.trades}</td>
       <td class="num">${a.trades ? Math.round(a.win_rate) + "%" : "–"}</td><td class="num">${a.green_days}/${a.days}</td></tr>`).join("")
-    || `<tr><td colspan="5" class="empty">Not run on this computer yet: the bot runs it after today's 3:31 report.</td></tr>`;
+    || `<tr><td colspan="5" class="empty">Not run on this computer yet: the bot runs it after today’s 3:31 report.</td></tr>`;
   $("picks").innerHTML = D.quant.picks.map(p => `<span class="chip">${esc(p)}</span>`).join("") || '<span class="sub">No picks yet.</span>';
   $("picks-sub").textContent = D.quant.at ? "Updated " + new Date(D.quant.at).toLocaleDateString("en-IN", {day: "numeric", month: "short", year: "numeric"}) + " · refreshed weekly" : "";
 
@@ -223,7 +223,7 @@ function render() {
       return `<p style="margin:6px 0"><span style="color:${COLORS[a.key]}">●</span> <b>${esc(a.name)}</b>
         <span class="tag">size ${Math.round((l.size || 1) * 100)}%</span> ${(l.avoid || []).map(x => `<span class="tag warn">skips: ${esc(x[1])}</span>`).join(" ")}
         <br><span class="sub">${esc((l.why || []).join(" "))}</span></p>`; }).join("") + `<div class="sub">Lessons made for ${esc(L.made)}.</div>`
-    : '<span class="sub">First lessons appear after today's 3:31 report.</span>';
+    : '<span class="sub">First lessons appear after today’s 3:31 report.</span>';
 
   drawCharts(names);
 }
