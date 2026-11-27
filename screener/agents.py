@@ -257,6 +257,43 @@ def save(con, day: str, agent: str, trades: list[dict], mode: str) -> None:
     con.commit()
 
 
+def save_live(con, day: str, agent: str, trades: list[dict], seen: str) -> list[dict]:
+    """Live trades are a record, not a replay: nothing recorded is ever deleted, a closed trade is final, and a
+    NEW trade counts only if it was bought on a candle after `seen` (HH:MM, the newest candle the last cycle saw).
+    One with an older time came from revised candles or from while the bot was down: no one could have made it.
+    Returns the trades that count (to announce)."""
+    ensure(con)
+    have = {(s, t): x for s, t, x in con.execute(
+        "SELECT symbol, entry_time, exit FROM agent_trades WHERE day=? AND agent=? AND mode='live'", (day, agent))}
+    out = []
+    for t in trades:
+        k = (t["symbol"], t["entry_time"])
+        if k in have and have[k] is not None:
+            continue  # already closed: final
+        if k not in have and t["entry_time"] <= seen:
+            continue  # hindsight
+        con.execute("INSERT OR REPLACE INTO agent_trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (day, agent, t["symbol"], t["qty"], t["entry"], t["entry_time"], t["exit"], t["exit_time"],
+                     t["reason"], t["pnl"], "live", json.dumps(t.get("context"))))
+        out.append(t)
+    con.commit()
+    return out
+
+
+def close_leftovers(con, day: str, agent: str, today: dict, cfg: dict) -> None:
+    """After 3:15, a recorded trade still open (the replay lost track of it) is closed at the 3:15 price."""
+    for s, qty, entry in con.execute("SELECT symbol, qty, entry FROM agent_trades WHERE day=? AND agent=? "
+                                     "AND mode='live' AND exit IS NULL", (day, agent)).fetchall():
+        df = today.get(s)
+        at = df[df.index.time >= SQUARE_OFF] if df is not None else None
+        price = (at["open"].iloc[0] if at is not None and len(at) else
+                 df["close"].iloc[-1] if df is not None and len(df) else entry) * (1 - SLIPPAGE)
+        pnl = intraday.pnl("LONG", entry, price, qty, cfg["charges_intraday"])
+        con.execute("UPDATE agent_trades SET exit=?, exit_time='15:15', reason='closed 3:15', pnl=? WHERE day=? AND "
+                    "agent=? AND mode='live' AND symbol=? AND exit IS NULL", (round(price, 2), round(pnl, 2), day, agent, s))
+    con.commit()
+
+
 def leaderboard(con, mode: str, day: str | None = None) -> pd.DataFrame:
     ensure(con)
     q = "SELECT * FROM agent_trades WHERE mode=? AND pnl IS NOT NULL" + (" AND day=?" if day else "")
@@ -330,13 +367,22 @@ def live_cycle(con, cfg: dict, picks: set, now: datetime) -> list[str]:
     naive = now.replace(tzinfo=None)
     data = {s: df[df.index + pd.Timedelta(minutes=5) <= naive] for s, df in data.items()}  # closed candles only
     today = prepare(data, now.date())
+    # broken or stale prices (internet drop, Yahoo hiccup) would replay a different day: skip this cycle
+    upto = min(naive, naive.replace(hour=15, minute=30, second=0, microsecond=0)) - timedelta(minutes=15)
+    fresh = sum(1 for df in today.values() if df.index[-1] >= upto)
+    if not today or fresh < 0.7 * len(symbols):
+        ui.warn(f"Agents: prices for only {fresh} of {len(symbols)} stocks are up to date - cycle skipped")
+        return []
     msgs, day = [], now.date().isoformat()
+    seen_key = f"agents_seen:{day}"
+    seen = get_state(con, seen_key) or ("00:00" if naive.hour < 10 else (naive - timedelta(minutes=20)).strftime("%H:%M"))
     sent_key = f"agents_sent:{day}"  # kept in the database: a restart mid-day doesn't resend old trades
     announced = {tuple(k) for k in json.loads(get_state(con, sent_key) or "[]")}
     lessons = lessons_for(con, day)
     for a in AGENTS:
-        trades = run_day(a, today, picks, cfg, lessons.get(a.key))
-        save(con, day, a.key, trades, "live")
+        trades = save_live(con, day, a.key, run_day(a, today, picks, cfg, lessons.get(a.key)), seen)
+        if naive.time() >= SQUARE_OFF:
+            close_leftovers(con, day, a.key, today, cfg)
         for t in trades:
             for opened in (True, False):
                 if not opened and t["pnl"] is None:
@@ -346,6 +392,7 @@ def live_cycle(con, cfg: dict, picks: set, now: datetime) -> list[str]:
                     announced.add(key)
                     msgs.append(_msg_trade(a, t, opened))
     set_state(con, sent_key, json.dumps(sorted(announced)))
+    set_state(con, seen_key, max(df.index[-1] for df in today.values()).strftime("%H:%M"))
     set_state(con, "agents_last_cycle", now.isoformat())
     return msgs
 

@@ -95,6 +95,11 @@
 - The fund and Breakout Bot run unchanged, with a check every Friday. Checkpoints: Breakout after about 3 months (100+ trades; Feb 2027), the fund's live IC at 6 months (May 2027) and 12 months (Nov 2027). Only after 12 months, consider a small real-money trial.
 - Next research when there's enough history: FII/DII flows and bulk/block deals, collected daily since 22 Nov 2026 (about Nov 2027).
 
+## Agent trades are a record, not a replay (27 Nov 2026)
+- Bug: every 5 minutes the agents replayed the whole day from Yahoo's 5-minute candles and rewrote the day's trades. When the laptop's internet dropped (25 Nov) or the candles came back partial or revised, the replay changed or emptied the record. 25 and 26 Nov were wiped, so no 3:31 report was sent and the totals were wrong. Revised candles also produced "hindsight" trades: a buy stamped 9:30 that first appeared at 10:58 (MUTHOOTFIN, 25 Nov), and 9 different Quant Bot buys announced on 26 Nov for a bot allowed 4.
+- Fix: a recorded trade is never deleted, a closed trade is final, and a new trade counts only if it's on a candle newer than the last cycle saw. A cycle with stale prices for more than 30% of stocks is skipped. Anything still open after 3:15 is closed at the 3:15 price. The log now keeps whole messages (it cut them at 300 characters).
+- Restored from the bot's own messages: Breakout Bot's 6 trades on 25–26 Nov (−₹676.34; MUTHOOTFIN left out as hindsight). Quant Bot's trades on those days can't be rebuilt honestly and aren't counted. Its announced sells were −₹31.04 (25 Nov) and −₹29.97 and −₹15.00, plus one unknown (26 Nov).
+
 ## Roadmap
 
 | Phase | What | Status |

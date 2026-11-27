@@ -58,6 +58,28 @@ class Agents(unittest.TestCase):
 
 
 class LiveMessages(unittest.TestCase):
+    def test_live_record_is_never_wiped_and_refuses_hindsight_trades(self):
+        import sqlite3
+        con = sqlite3.connect(":memory:")
+        t = lambda s, at, exit=None: {"symbol": s, "qty": 2, "entry": 100.0, "entry_time": at, "exit": exit,
+                                      "exit_time": None if exit is None else "10:00", "reason": "open" if exit is None else "stop",
+                                      "pnl": None if exit is None else -3.0, "context": {}}
+        d = "2026-11-25"
+        self.assertEqual(len(agents.save_live(con, d, "breakout", [t("A", "09:30")], "09:20")), 1)
+        agents.save_live(con, d, "breakout", [], "09:40")                         # a broken replay finds nothing...
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM agent_trades").fetchone()[0], 1)  # ...the record stays
+        got = agents.save_live(con, d, "breakout", [t("A", "09:30", 98.0), t("B", "09:30")], "10:45")
+        self.assertEqual([x["symbol"] for x in got], ["A"])                      # B "bought at 9:30" seen at 11: refused
+        agents.save_live(con, d, "breakout", [t("A", "09:30")], "10:50")          # revised candles can't reopen it
+        self.assertEqual(con.execute("SELECT exit FROM agent_trades WHERE symbol='A'").fetchone()[0], 98.0)
+        agents.save_live(con, d, "quant", [t("C", "09:30")], "09:20")
+        today = {"C": candles([100.0] * 71 + [105.0] * 4, day=date(2026, 11, 25))}
+        agents.close_leftovers(con, d, "quant", today, load_config())                # still open after 3:15: closed there
+        exit_, reason, pnl = con.execute("SELECT exit, reason, pnl FROM agent_trades WHERE symbol='C'").fetchone()
+        self.assertEqual(reason, "closed 3:15")
+        self.assertAlmostEqual(exit_, 105 * (1 - agents.SLIPPAGE), places=2)
+        self.assertGreater(pnl, 0)
+
     def test_each_trade_is_announced_once_even_after_a_restart(self):
         import os, tempfile
         from datetime import datetime
@@ -68,11 +90,13 @@ class LiveMessages(unittest.TestCase):
         con = db.connect(os.path.join(d.name, "t.db"))
         self.addCleanup(con.close)
         bars = {"X": two_days([100.0 + 0.01 * k for k in range(75)])}
-        now = datetime(2026, 11, 20, 15, 31, tzinfo=intraday.IST)
+        at = lambda h, m: datetime(2026, 11, 20, h, m, tzinfo=intraday.IST)
         with mock.patch.object(live, "candles", lambda *a, **k: bars),                 mock.patch.object(intraday, "liquid_universe", lambda *a: ["X"]):
-            first = agents.live_cycle(con, load_config(), {"X"}, now)
-            again = agents.live_cycle(con, load_config(), {"X"}, now)    # same as a restart: state is in the DB
-        self.assertEqual(len(first), 2)                                     # Quant Bot bought, then closed at 3:15
+            bought = agents.live_cycle(con, load_config(), {"X"}, at(9, 36))
+            closed = agents.live_cycle(con, load_config(), {"X"}, at(15, 31))
+            again = agents.live_cycle(con, load_config(), {"X"}, at(15, 31))  # same as a restart: state is in the DB
+        self.assertEqual(len(bought), 1)                                    # Quant Bot bought at 9:30
+        self.assertEqual(len(closed), 1)                                    # and closed at 3:15
         self.assertEqual(again, [])
 
 

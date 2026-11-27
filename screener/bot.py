@@ -126,7 +126,7 @@ class Bot:
         return True
 
     def say(self, text, buttons=None, menu=False, rich=False):
-        log("BOT> " + text.replace("\n", " | ")[:300])
+        log("BOT> " + text.replace("\n", " | ")[:3000])  # whole messages: the log is the backup record of trades
         telegram.send(text, buttons=buttons, menu=menu, rich=rich)
 
     def watched_symbols(self) -> set[str]:
